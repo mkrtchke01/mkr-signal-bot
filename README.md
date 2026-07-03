@@ -3,7 +3,7 @@
 Конструктор торговых «трейдеров»: правила входа по RSI / MACD / EMA на любых таймфреймах,
 стоп/тейк по проценту цены или значению RSI, бэктест за неделю и месяц,
 сигналы в Telegram-каналы с карточками-скринами. Работает полностью бесплатно:
-Vercel (Hobby) + Neon Postgres + cron-job.org.
+Vercel (Hobby) + Supabase Postgres + cron-job.org.
 
 ## Как это работает
 
@@ -34,13 +34,19 @@ Vercel (Hobby) + Neon Postgres + cron-job.org.
    - `APP_PASSWORD` — (необязательно) пароль на веб-интерфейс
 4. Deploy.
 
-### 3. База данных (Neon, бесплатно)
+### 3. База данных (Supabase, бесплатно)
 
-1. В проекте Vercel → вкладка **Storage** → **Create Database** → выбери **Neon** (Postgres) → Create.
-2. Vercel сам добавит переменную `DATABASE_URL`.
-3. Сделай **Redeploy** проекта (Deployments → ⋯ → Redeploy), чтобы переменная подхватилась.
+1. В проекте Vercel → вкладка **Storage** → **Create Database** → выбери **Supabase** (Postgres) →
+   план Free, регион Frankfurt (eu-central-1) → Create и подключи к проекту.
+2. Vercel сам добавит переменную `POSTGRES_URL` (и другие).
+3. Сделай **Redeploy** проекта (Deployments → ⋯ → Redeploy), чтобы переменные подхватились.
 
 Таблицы создадутся сами при первом открытии сайта.
+
+> Почему Supabase, а не Neon: у Neon Free лимит 100 compute-часов в месяц, а наш крон
+> будит базу каждую минуту — лимит сгорит примерно за две трети месяца. У Supabase
+> счётчика compute-часов нет. Neon при этом тоже поддерживается (переменная
+> `DATABASE_URL`) — код работает с любым Postgres.
 
 ### 4. Вебхук Telegram
 

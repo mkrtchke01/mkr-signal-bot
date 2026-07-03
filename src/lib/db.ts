@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
 import type {
   Direction, ExitRule, Rule, Signal, SignalStatus, TF, Trader, TraderConfig,
   TraderStats, TraderStatus,
@@ -7,10 +7,27 @@ import type {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
+let client: ReturnType<typeof postgres> | null = null;
+
+// Универсальный Postgres-клиент: работает и с Supabase (POSTGRES_URL из
+// интеграции Vercel, pooler 6543), и с Neon (DATABASE_URL), и с любым другим PG.
 function getSql() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL не задан. Подключи интеграцию Neon в Vercel.");
-  return neon(url);
+  if (client) return client;
+  const url = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "Нет строки подключения к БД: подключи Supabase или Neon в Vercel → Storage "
+      + "(появится POSTGRES_URL / DATABASE_URL) и сделай Redeploy.",
+    );
+  }
+  client = postgres(url, {
+    ssl: "require",
+    prepare: false, // обязательно для пулера Supabase (pgbouncer, transaction mode)
+    max: 5,
+    idle_timeout: 20,
+    connect_timeout: 15,
+  });
+  return client;
 }
 
 let schemaReady: Promise<void> | null = null;
