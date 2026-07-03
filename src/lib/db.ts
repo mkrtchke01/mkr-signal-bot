@@ -278,9 +278,10 @@ export async function upsertChannel(chatId: string, title: string, type: string)
     ON CONFLICT (chat_id) DO UPDATE SET title = ${title}, type = ${type}, active = true`;
 }
 
+// Бота убрали из канала — убираем канал из списка совсем
 export async function removeChannel(chatId: string): Promise<void> {
   const sql = await db();
-  await sql`UPDATE channels SET active = false WHERE chat_id = ${chatId}`;
+  await sql`DELETE FROM channels WHERE chat_id = ${chatId}`;
 }
 
 export async function setChannelActive(chatId: string, active: boolean): Promise<void> {

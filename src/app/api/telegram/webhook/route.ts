@@ -38,8 +38,10 @@ export async function POST(req: NextRequest) {
           + `2. Управление трейдерами: ${base ?? "открой веб-интерфейс"}`,
       });
     }
-  } catch {
-    // Telegram ретраит при не-200, поэтому всегда отвечаем ok
+  } catch (e) {
+    // Telegram ретраит при не-200, поэтому всегда отвечаем ok,
+    // но ошибку пишем в логи Vercel
+    console.error("telegram webhook error:", e);
   }
   return NextResponse.json({ ok: true });
 }
