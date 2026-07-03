@@ -91,6 +91,11 @@ export async function db() {
   return getSql();
 }
 
+// Через пулер Supabase postgres.js может отдавать jsonb строкой — разбираем сами
+function j<T>(v: unknown): T {
+  return (typeof v === "string" ? JSON.parse(v) : v) as T;
+}
+
 function rowToTrader(r: Row): Trader {
   return {
     id: r.id,
@@ -99,9 +104,9 @@ function rowToTrader(r: Row): Trader {
     direction: r.direction as Direction,
     leverage: Number(r.leverage),
     timeframe: r.timeframe as TF,
-    rules: r.rules as Rule[],
-    stopLoss: r.stop_loss as ExitRule,
-    takeProfit: r.take_profit as ExitRule,
+    rules: j<Rule[]>(r.rules),
+    stopLoss: j<ExitRule>(r.stop_loss),
+    takeProfit: j<ExitRule>(r.take_profit),
     status: r.status as TraderStatus,
     lastEntryCandle: Number(r.last_entry_candle),
     createdAt: new Date(r.created_at).toISOString(),
@@ -123,7 +128,7 @@ function rowToSignal(r: Row): Signal {
     exitPrice: r.exit_price === null ? null : Number(r.exit_price),
     exitTime: r.exit_time ? new Date(r.exit_time).toISOString() : null,
     profitPct: r.profit_pct === null ? null : Number(r.profit_pct),
-    config: r.config,
+    config: j(r.config),
     lastCheckedMs: Number(r.last_checked_ms),
   };
 }
