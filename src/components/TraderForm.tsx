@@ -76,6 +76,7 @@ export default function TraderForm({ initial }: Props) {
   // Шаги 3–4
   const [sl, setSl] = useState<ExitDraft>(exitToDraft(initial?.stopLoss, initial?.timeframe ?? "15m", "2", "25"));
   const [tp, setTp] = useState<ExitDraft>(exitToDraft(initial?.takeProfit, initial?.timeframe ?? "15m", "4", "70"));
+  const [maxHold, setMaxHold] = useState(initial?.maxHoldHours ? String(initial.maxHoldHours) : "");
 
   useEffect(() => {
     fetch("/api/symbols")
@@ -136,6 +137,7 @@ export default function TraderForm({ initial }: Props) {
       symbol, direction, leverage: Number(leverage), timeframe, rules,
       stopLoss: draftToExit(sl),
       takeProfit: draftToExit(tp),
+      maxHoldHours: maxHold.trim() === "" ? null : Number(maxHold),
     };
     const res = await fetch(initial ? `/api/traders/${initial.id}` : "/api/traders", {
       method: initial ? "PUT" : "POST",
@@ -341,12 +343,27 @@ export default function TraderForm({ initial }: Props) {
             )}
             {step === 3 && (
               <div className="field">
+                <label>Макс. время удержания сделки, часов (пусто = без лимита)</label>
+                <input
+                  type="number" min={1} max={720} placeholder="например 168 (неделя)"
+                  value={maxHold} onChange={(e) => setMaxHold(e.target.value)}
+                />
+                <p className="hint">
+                  Если сделка не закрылась по тейку/стопу за это время — закроется по рынку.
+                </p>
+              </div>
+            )}
+            {step === 3 && (
+              <div className="field">
                 <label>Итог настройки</label>
                 <div className="rules-list">
                   <div className="rule-item"><span>{name} — {direction} #{symbol} ×{leverage}, базовый ТФ {timeframe}</span></div>
                   {rules.map((r, i) => <div className="rule-item" key={i}><span>Вход: {ruleLabel(r)}</span></div>)}
                   <div className="rule-item"><span>Стоп: {exitLabel(draftToExit(sl))}</span></div>
                   <div className="rule-item"><span>Тейк: {exitLabel(draftToExit(tp))}</span></div>
+                  {maxHold.trim() !== "" && (
+                    <div className="rule-item"><span>Макс. удержание: {maxHold} ч</span></div>
+                  )}
                 </div>
               </div>
             )}

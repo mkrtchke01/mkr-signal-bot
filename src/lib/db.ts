@@ -69,6 +69,7 @@ export function ensureSchema(): Promise<void> {
         config jsonb NOT NULL,
         last_checked_ms bigint NOT NULL DEFAULT 0
       )`;
+      await sql`ALTER TABLE traders ADD COLUMN IF NOT EXISTS max_hold_hours int`;
       await sql`CREATE INDEX IF NOT EXISTS idx_signals_trader ON signals(trader_id)`;
       await sql`CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status)`;
       await sql`CREATE TABLE IF NOT EXISTS channels (
@@ -107,6 +108,8 @@ function rowToTrader(r: Row): Trader {
     rules: j<Rule[]>(r.rules),
     stopLoss: j<ExitRule>(r.stop_loss),
     takeProfit: j<ExitRule>(r.take_profit),
+    maxHoldHours: r.max_hold_hours === null || r.max_hold_hours === undefined
+      ? null : Number(r.max_hold_hours),
     status: r.status as TraderStatus,
     lastEntryCandle: Number(r.last_entry_candle),
     createdAt: new Date(r.created_at).toISOString(),
@@ -148,10 +151,10 @@ export async function getTrader(id: string): Promise<Trader | null> {
 export async function createTrader(name: string, c: TraderConfig): Promise<Trader> {
   const sql = await db();
   const rows = await sql`INSERT INTO traders
-    (name, symbol, direction, leverage, timeframe, rules, stop_loss, take_profit)
+    (name, symbol, direction, leverage, timeframe, rules, stop_loss, take_profit, max_hold_hours)
     VALUES (${name}, ${c.symbol}, ${c.direction}, ${c.leverage}, ${c.timeframe},
             ${JSON.stringify(c.rules)}::jsonb, ${JSON.stringify(c.stopLoss)}::jsonb,
-            ${JSON.stringify(c.takeProfit)}::jsonb)
+            ${JSON.stringify(c.takeProfit)}::jsonb, ${c.maxHoldHours ?? null})
     RETURNING *`;
   return rowToTrader(rows[0]);
 }
@@ -164,6 +167,7 @@ export async function updateTrader(id: string, name: string, c: TraderConfig): P
       rules = ${JSON.stringify(c.rules)}::jsonb,
       stop_loss = ${JSON.stringify(c.stopLoss)}::jsonb,
       take_profit = ${JSON.stringify(c.takeProfit)}::jsonb,
+      max_hold_hours = ${c.maxHoldHours ?? null},
       updated_at = now()
     WHERE id = ${id} RETURNING *`;
   return rows.length ? rowToTrader(rows[0]) : null;
@@ -193,12 +197,13 @@ export async function traderStats(ids: string[]): Promise<Map<string, TraderStat
       count(*) FILTER (WHERE status = 'OPEN')::int AS open,
       count(*) FILTER (WHERE status = 'TP')::int AS tp,
       count(*) FILTER (WHERE status = 'SL')::int AS sl,
+      count(*) FILTER (WHERE status = 'TIME')::int AS "time",
       coalesce(sum(profit_pct), 0)::float8 AS profit
     FROM signals WHERE trader_id = ANY(${ids}::uuid[])
     GROUP BY trader_id`;
   for (const r of rows) {
     map.set(r.trader_id, {
-      total: r.total, open: r.open, tp: r.tp, sl: r.sl, profitPct: r.profit,
+      total: r.total, open: r.open, tp: r.tp, sl: r.sl, time: r.time, profitPct: r.profit,
     });
   }
   return map;
@@ -244,7 +249,7 @@ export async function insertSignal(s: {
 }
 
 export async function closeSignal(
-  id: string, status: "TP" | "SL", exitPrice: number, profitPct: number,
+  id: string, status: "TP" | "SL" | "TIME", exitPrice: number, profitPct: number,
 ): Promise<void> {
   const sql = await db();
   await sql`UPDATE signals SET status = ${status}, exit_price = ${exitPrice},

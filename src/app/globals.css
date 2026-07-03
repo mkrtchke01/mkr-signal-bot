@@ -117,6 +117,7 @@ label { display: block; color: var(--muted); font-size: 13px; margin-bottom: 5px
 .badge.tp { background: rgba(22,199,132,.15); color: var(--green); }
 .badge.sl { background: rgba(234,57,67,.15); color: var(--red); }
 .badge.open { background: rgba(74,158,255,.15); color: var(--blue); }
+.badge.time { background: rgba(240,185,11,.15); color: var(--yellow); }
 
 .trader-card { display: flex; flex-direction: column; gap: 10px; }
 .trader-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

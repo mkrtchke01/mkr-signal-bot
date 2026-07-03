@@ -96,6 +96,9 @@ export default function TraderPage() {
           {t.rules.map((r, i) => <div className="rule-item" key={i}><span>Вход: {ruleLabel(r)}</span></div>)}
           <div className="rule-item"><span>🛑 Стоп: {exitLabel(t.stopLoss)}</span></div>
           <div className="rule-item"><span>🎯 Тейк: {exitLabel(t.takeProfit)}</span></div>
+          {t.maxHoldHours ? (
+            <div className="rule-item"><span>⏱ Макс. удержание: {t.maxHoldHours} ч</span></div>
+          ) : null}
         </div>
       </div>
 
@@ -105,6 +108,7 @@ export default function TraderPage() {
           <div className="stat"><div className="v">{s?.total ?? 0}</div><div className="l">сигналов</div></div>
           <div className="stat"><div className="v pos">{s?.tp ?? 0}</div><div className="l">по тейку</div></div>
           <div className="stat"><div className="v neg">{s?.sl ?? 0}</div><div className="l">по стопу</div></div>
+          <div className="stat"><div className="v">{s?.time ?? 0}</div><div className="l">по времени</div></div>
           <div className="stat"><div className="v">{s?.open ?? 0}</div><div className="l">открыто</div></div>
           <div className="stat">
             <div className={`v ${profit >= 0 ? "pos" : "neg"}`}>{fmtPct(profit)}</div>
@@ -130,6 +134,7 @@ export default function TraderPage() {
               <div className="stat"><div className="v">{bt.stats.total}</div><div className="l">сделок за {bt.days} дн.</div></div>
               <div className="stat"><div className="v pos">{bt.stats.tp}</div><div className="l">по тейку</div></div>
               <div className="stat"><div className="v neg">{bt.stats.sl}</div><div className="l">по стопу</div></div>
+              <div className="stat"><div className="v">{bt.stats.time}</div><div className="l">по времени</div></div>
               <div className="stat"><div className="v">{bt.stats.winRate}%</div><div className="l">winrate</div></div>
               <div className="stat">
                 <div className={`v ${bt.stats.profitPct >= 0 ? "pos" : "neg"}`}>{fmtPct(bt.stats.profitPct)}</div>

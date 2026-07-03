@@ -59,6 +59,7 @@ export interface TraderConfig {
   rules: Rule[];
   stopLoss: ExitRule;
   takeProfit: ExitRule;
+  maxHoldHours?: number | null; // закрыть по рынку через N часов (null = без лимита)
 }
 
 export type TraderStatus = "RUNNING" | "PAUSED";
@@ -76,10 +77,11 @@ export interface TraderStats {
   open: number;
   tp: number;
   sl: number;
+  time: number; // закрыто по лимиту времени
   profitPct: number; // суммарный профит в % с учётом плеча
 }
 
-export type SignalStatus = "OPEN" | "TP" | "SL";
+export type SignalStatus = "OPEN" | "TP" | "SL" | "TIME";
 
 export interface Signal {
   id: string;
@@ -114,7 +116,7 @@ export interface BacktestTrade {
   entryPrice: number;
   exitTime: number | null;
   exitPrice: number | null;
-  result: "TP" | "SL" | "OPEN";
+  result: "TP" | "SL" | "TIME" | "OPEN";
   profitPct: number | null;
 }
 
@@ -126,8 +128,9 @@ export interface BacktestResult {
     total: number;
     tp: number;
     sl: number;
+    time: number;
     open: number;
-    winRate: number; // 0..100 по закрытым
+    winRate: number; // 0..100: доля закрытых с профитом > 0
     profitPct: number; // сумма % с плечом
   };
 }

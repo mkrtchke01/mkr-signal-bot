@@ -7,7 +7,8 @@ export function warmupCandles(rule: Rule): number {
   switch (rule.type) {
     case "rsi": return rule.period * 4 + 10;
     case "macd": return 26 + 9 + rule.candles + 30;
-    case "ema": return rule.period * 3 + 10;
+    // EMA сидируется SMA(period), быстро сходится — большой прогрев не нужен
+    case "ema": return rule.period + 30;
   }
 }
 
@@ -31,22 +32,43 @@ export function smallestTf(c: TraderConfig): TF {
   return tfs.reduce((a, b) => (TF_MS[a] <= TF_MS[b] ? a : b));
 }
 
+// Кэш индикаторных серий: считаем один раз на массив свечей (важно для
+// бэктеста, где одно и то же правило проверяется на каждой свече).
+const seriesCache = new WeakMap<Candle[], Map<string, number[]>>();
+
+function cachedSeries(candles: Candle[], key: string, compute: (closes: number[]) => number[]): number[] {
+  let perArray = seriesCache.get(candles);
+  if (!perArray) {
+    perArray = new Map();
+    seriesCache.set(candles, perArray);
+  }
+  let series = perArray.get(key);
+  if (!series) {
+    series = compute(candles.map((c) => c.close));
+    perArray.set(key, series);
+  }
+  return series;
+}
+
+export function rsiSeries(candles: Candle[], period: number): number[] {
+  return cachedSeries(candles, `rsi:${period}`, (closes) => rsi(closes, period));
+}
+
 // Проверка одного правила на закрытой свече с индексом i
 export function ruleTriggeredAt(
   rule: Rule, direction: Direction, candles: Candle[], i: number,
 ): boolean {
   if (i < 1 || i >= candles.length) return false;
-  const closes = candles.map((c) => c.close);
   switch (rule.type) {
     case "rsi": {
-      const v = rsi(closes, rule.period)[i];
+      const v = rsiSeries(candles, rule.period)[i];
       if (Number.isNaN(v)) return false;
       return rule.op === "lte" ? v <= rule.value : v >= rule.value;
     }
     case "macd": {
       // Разворот гистограммы MACD: для LONG — N подряд растущих баров ниже нуля
       // («красные бары уменьшаются»), для SHORT — N подряд падающих выше нуля.
-      const h = macdHistogram(closes);
+      const h = cachedSeries(candles, "macd", (closes) => macdHistogram(closes));
       const n = rule.candles;
       if (i - n < 0) return false;
       for (let k = 0; k <= n; k++) {
@@ -64,10 +86,10 @@ export function ruleTriggeredAt(
       return true;
     }
     case "ema": {
-      const e = ema(closes, rule.period);
+      const e = cachedSeries(candles, `ema:${rule.period}`, (closes) => ema(closes, rule.period));
       if (Number.isNaN(e[i]) || Number.isNaN(e[i - 1])) return false;
-      const price = closes[i];
-      const prevPrice = closes[i - 1];
+      const price = candles[i].close;
+      const prevPrice = candles[i - 1].close;
       switch (rule.condition) {
         case "price_above": return price > e[i];
         case "price_below": return price < e[i];
@@ -129,12 +151,13 @@ export function checkPriceExit(
 
 // RSI-выход: для LONG тейк срабатывает при RSI >= value (перекупленность),
 // стоп — при RSI <= value. Для SHORT зеркально.
+// i — индекс свечи, на закрытии которой проверяем (по умолчанию последняя).
 export function rsiExitTriggered(
   exit: ExitRule & { type: "rsi" }, kind: "tp" | "sl",
-  direction: Direction, candles: Candle[],
+  direction: Direction, candles: Candle[], i = candles.length - 1,
 ): boolean {
-  if (candles.length < exit.period + 2) return false;
-  const v = rsi(candles.map((c) => c.close), exit.period)[candles.length - 1];
+  if (i < exit.period + 1 || i >= candles.length) return false;
+  const v = rsiSeries(candles, exit.period)[i];
   if (Number.isNaN(v)) return false;
   const up = (kind === "tp") === (direction === "LONG");
   return up ? v >= exit.value : v <= exit.value;

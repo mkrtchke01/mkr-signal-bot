@@ -37,6 +37,17 @@ async function checkExits(s: Signal, cache: Map<string, Candle[]>, report: TickR
   const now = Date.now();
   const since = Math.max(s.lastCheckedMs || 0, new Date(s.entryTime).getTime());
 
+  // 0) лимит времени удержания — закрываем по рынку
+  if (c.maxHoldHours && now - new Date(s.entryTime).getTime() >= c.maxHoldHours * 3_600_000) {
+    const price = await lastPrice(s.symbol);
+    const pct = profitPct(s.direction, s.entryPrice, price, s.leverage);
+    await closeSignal(s.id, "TIME", price, pct);
+    const fresh = await getSignal(s.id);
+    if (fresh) report.errors.push(...await broadcastSignalClose(fresh));
+    report.closed.push({ id: s.id, status: "TIME", profitPct: pct });
+    return;
+  }
+
   // 1) процентные уровни — по минутным свечам с момента прошлой проверки
   if (s.stopPrice !== null || s.takePrice !== null) {
     const minute = await fetchKlines(s.symbol, "1m", {
@@ -123,6 +134,7 @@ export async function runTick(): Promise<TickReport> {
           name: t.name, symbol: t.symbol, direction: t.direction,
           leverage: t.leverage, timeframe: t.timeframe, rules: t.rules,
           stopLoss: t.stopLoss, takeProfit: t.takeProfit,
+          maxHoldHours: t.maxHoldHours ?? null,
         },
         lastCheckedMs: now,
       });

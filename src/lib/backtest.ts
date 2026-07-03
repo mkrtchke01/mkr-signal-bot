@@ -12,7 +12,10 @@ import { TF_MS } from "./types";
 // Вход — по цене закрытия свечи, на которой сработали все правила.
 // Процентные SL/TP проверяются по high/low каждой шаговой свечи
 // (стоп приоритетнее тейка в одной свече), RSI-выходы — по закрытиям своего ТФ.
-export async function runBacktest(c: TraderConfig, days: number): Promise<BacktestResult> {
+export async function runBacktest(
+  c: TraderConfig, days: number,
+  preloaded?: Map<TF, Candle[]>, // готовые свечи (для перебора стратегий без повторных загрузок)
+): Promise<BacktestResult> {
   const stepTf = smallestTf(c);
   const tfs = new Set<TF>(requiredTfs(c));
   tfs.add(stepTf);
@@ -29,6 +32,10 @@ export async function runBacktest(c: TraderConfig, days: number): Promise<Backte
 
   const candlesByTf = new Map<TF, Candle[]>();
   for (const tf of tfs) {
+    if (preloaded?.has(tf)) {
+      candlesByTf.set(tf, preloaded.get(tf)!);
+      continue;
+    }
     const start = from - maxWarmup * TF_MS[tf];
     const candles = await fetchKlinesRange(c.symbol, tf, start, now);
     // выбрасываем последнюю (незакрытую) свечу
@@ -69,6 +76,15 @@ export async function runBacktest(c: TraderConfig, days: number): Promise<Backte
     candlesTested++;
 
     if (openTrade) {
+      // 0) лимит времени удержания — закрываем по рынку
+      if (c.maxHoldHours && t - openTrade.entryTime >= c.maxHoldHours * 3_600_000) {
+        openTrade.exitTime = t;
+        openTrade.exitPrice = candle.close;
+        openTrade.result = "TIME";
+        openTrade.profitPct = profitPct(c.direction, openTrade.entryPrice, candle.close, c.leverage);
+        openTrade = null;
+        continue;
+      }
       // 1) процентные уровни по экстремумам шаговой свечи
       const hit = checkPriceExit(c.direction, candle, stopPrice, takePrice);
       if (hit) {
@@ -85,8 +101,7 @@ export async function runBacktest(c: TraderConfig, days: number): Promise<Backte
         if (exit.type !== "rsi") continue;
         const idx = lastClosedIdx(exit.tf, t);
         if (idx < 0) continue;
-        const slice = candlesByTf.get(exit.tf)!.slice(0, idx + 1);
-        if (rsiExitTriggered(exit, kind, c.direction, slice)) {
+        if (rsiExitTriggered(exit, kind, c.direction, candlesByTf.get(exit.tf)!, idx)) {
           openTrade.exitTime = t;
           openTrade.exitPrice = candle.close;
           openTrade.result = kind === "tp" ? "TP" : "SL";
@@ -124,8 +139,10 @@ export async function runBacktest(c: TraderConfig, days: number): Promise<Backte
 
   const tp = trades.filter((x) => x.result === "TP").length;
   const sl = trades.filter((x) => x.result === "SL").length;
+  const time = trades.filter((x) => x.result === "TIME").length;
   const open = trades.filter((x) => x.result === "OPEN").length;
-  const closedCount = tp + sl;
+  const closed = trades.filter((x) => x.result !== "OPEN");
+  const wins = closed.filter((x) => (x.profitPct ?? 0) > 0).length;
   const total = trades.reduce((s, x) => s + (x.profitPct ?? 0), 0);
 
   return {
@@ -133,8 +150,8 @@ export async function runBacktest(c: TraderConfig, days: number): Promise<Backte
     candles: candlesTested,
     trades,
     stats: {
-      total: trades.length, tp, sl, open,
-      winRate: closedCount ? Math.round((tp / closedCount) * 1000) / 10 : 0,
+      total: trades.length, tp, sl, time, open,
+      winRate: closed.length ? Math.round((wins / closed.length) * 1000) / 10 : 0,
       profitPct: Math.round(total * 100) / 100,
     },
   };

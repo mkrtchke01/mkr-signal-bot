@@ -33,13 +33,15 @@ export async function GET(req: NextRequest) {
   const long = s.direction === "LONG";
   const accent = long ? "#16c784" : "#ea3943";
   const closed = state === "closed" && s.status !== "OPEN";
-  const win = s.status === "TP";
+  const win = s.status === "TP" || (s.status === "TIME" && (s.profitPct ?? 0) >= 0);
 
   let rules = c.rules.map(ruleLabel);
   let name = c.name;
   let takeText = s.takePrice !== null ? fmtPrice(s.takePrice) : exitLabel(c.takeProfit);
   let stopText = s.stopPrice !== null ? fmtPrice(s.stopPrice) : exitLabel(c.stopLoss);
-  let resultTitle = closed ? (win ? "ТЕЙК СРАБОТАЛ" : "СТОП СРАБОТАЛ") : "";
+  let resultTitle = closed
+    ? (s.status === "TIME" ? "ЗАКРЫТ ПО ВРЕМЕНИ" : win ? "ТЕЙК СРАБОТАЛ" : "СТОП СРАБОТАЛ")
+    : "";
   let labels = {
     trader: "Трейдер", entry: "Вход", take: "Тейк", stop: "Стоп",
     rules: "Правила входа", exit: "Выход", result: "Результат", tf: "Базовый ТФ",
@@ -58,7 +60,9 @@ export async function GET(req: NextRequest) {
     name = latinize(name);
     takeText = latinize(takeText);
     stopText = latinize(stopText);
-    resultTitle = closed ? (win ? "TAKE PROFIT HIT" : "STOP LOSS HIT") : "";
+    resultTitle = closed
+      ? (s.status === "TIME" ? "TIME EXIT" : win ? "TAKE PROFIT HIT" : "STOP LOSS HIT")
+      : "";
     labels = {
       trader: "Trader", entry: "Entry", take: "Take", stop: "Stop",
       rules: "Entry rules", exit: "Exit", result: "Result", tf: "Base TF",

@@ -78,6 +78,10 @@ export function parseTraderPayload(raw: any): { name: string; config: TraderConf
   const rules = Array.isArray(raw.rules) ? raw.rules.map(parseRule) : [];
   if (!rules.length) throw new ValidationError("Добавь хотя бы одно правило входа");
   if (rules.length > 10) throw new ValidationError("Максимум 10 правил");
+  const maxHoldHours = raw.maxHoldHours === null || raw.maxHoldHours === undefined
+      || raw.maxHoldHours === ""
+    ? null
+    : Math.round(num(raw.maxHoldHours, "Макс. удержание (часы)", 1, 720));
   return {
     name,
     config: {
@@ -88,6 +92,7 @@ export function parseTraderPayload(raw: any): { name: string; config: TraderConf
       rules,
       stopLoss: parseExit(raw.stopLoss, "Стоп-лосс"),
       takeProfit: parseExit(raw.takeProfit, "Тейк-профит"),
+      maxHoldHours,
     },
   };
 }

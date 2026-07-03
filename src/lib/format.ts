@@ -55,8 +55,9 @@ export function signalOpenCaption(s: Signal): string {
 }
 
 export function signalCloseCaption(s: Signal): string {
-  const icon = s.status === "TP" ? "✅" : "⛔";
-  const what = s.status === "TP" ? "ТЕЙК" : "СТОП";
+  const win = (s.profitPct ?? 0) >= 0;
+  const icon = s.status === "TP" ? "✅" : s.status === "TIME" ? (win ? "⏱✅" : "⏱⛔") : "⛔";
+  const what = s.status === "TP" ? "ТЕЙК" : s.status === "TIME" ? "ЗАКРЫТ ПО ВРЕМЕНИ" : "СТОП";
   return [
     `${icon} ${what} #${s.symbol} ${s.direction} ×${s.leverage}`,
     `Трейдер: ${s.config.name}`,
