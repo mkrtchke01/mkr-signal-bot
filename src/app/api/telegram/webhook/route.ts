@@ -27,8 +27,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Запасной путь регистрации: любой пост в канале, где бот админ
+    const post = update.channel_post;
+    if (post?.chat?.type === "channel") {
+      await upsertChannel(String(post.chat.id), post.chat.title ?? "", "channel");
+    }
+
     // /start в личке — короткая справка
     const msg = update.message;
+    // ...и любое сообщение в группе, где сидит бот, тоже регистрирует её
+    if (msg?.chat && ["group", "supergroup"].includes(msg.chat.type)) {
+      await upsertChannel(String(msg.chat.id), msg.chat.title ?? "", msg.chat.type);
+    }
     if (msg?.chat?.type === "private" && typeof msg.text === "string" && msg.text.startsWith("/start")) {
       const base = appUrl();
       await tg("sendMessage", {

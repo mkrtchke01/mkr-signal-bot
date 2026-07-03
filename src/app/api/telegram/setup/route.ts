@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     await tg("setWebhook", {
       url: `${base}/api/telegram/webhook`,
       secret_token: secret,
-      allowed_updates: ["message", "my_chat_member"],
+      allowed_updates: ["message", "my_chat_member", "channel_post"],
     });
     const me = await tg("getMe", {});
     return NextResponse.json({
