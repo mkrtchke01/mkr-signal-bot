@@ -21,12 +21,14 @@ import type { BotSetup, Candle, TF } from "./types";
 
 export interface BotConfig {
   enabled: boolean;
+  enabledAt: string | null; // когда бота запустили в последний раз (ISO)
   maxActive: number;   // максимум одновременных сетапов (PENDING + OPEN)
   scanMinutes: number; // как часто искать новые сетапы
 }
 
 export const DEFAULT_BOT_CONFIG: BotConfig = {
   enabled: false,
+  enabledAt: null,
   maxActive: 3,
   scanMinutes: 15,
 };

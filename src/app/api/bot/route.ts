@@ -29,8 +29,12 @@ export async function POST(req: NextRequest) {
     const cfg = await getBotConfig();
 
     if (body.action === "toggle") {
-      await saveBotConfig({ ...cfg, enabled: !cfg.enabled });
-      return NextResponse.json({ ok: true, enabled: !cfg.enabled });
+      const enabled = !cfg.enabled;
+      await saveBotConfig({
+        ...cfg, enabled,
+        enabledAt: enabled ? new Date().toISOString() : cfg.enabledAt,
+      });
+      return NextResponse.json({ ok: true, enabled });
     }
 
     if (body.action === "config") {
