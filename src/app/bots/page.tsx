@@ -85,6 +85,7 @@ export default function BotsPage() {
                 <span className="chip">✅ {s.tp} по тейку</span>
                 <span className="chip">🟨 {s.be} безубыток</span>
                 <span className="chip">⛔ {s.sl} по стопу</span>
+                <span className="chip">✖️ {s.cancelled} отменено</span>
                 <span className="chip">🔄 {s.open + s.pending} активных</span>
                 <span className="chip">
                   {s.profitPct >= 0 ? "📈" : "📉"} {fmtPct(s.profitPct)}
