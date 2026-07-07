@@ -14,12 +14,16 @@ interface BotListItem {
   stats: BotStats;
 }
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return "ещё не запускался";
+function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString("ru-RU", {
     day: "2-digit", month: "2-digit", year: "2-digit",
     hour: "2-digit", minute: "2-digit",
   });
+}
+
+function runLabel(enabled: boolean, enabledAt: string | null): string {
+  if (enabled) return enabledAt ? `запущен с ${fmtDate(enabledAt)}` : "запущен";
+  return enabledAt ? `последний запуск ${fmtDate(enabledAt)}` : "ещё не запускался";
 }
 
 export default function BotsPage() {
@@ -70,7 +74,7 @@ export default function BotsPage() {
                   {b.enabled ? "работает" : "на паузе"}
                 </span>
                 <span className="muted" style={{ fontSize: 13 }}>
-                  {b.enabled ? `запущен с ${fmtDate(b.enabledAt)}` : fmtDate(b.enabledAt) === "ещё не запускался" ? "ещё не запускался" : `последний запуск ${fmtDate(b.enabledAt)}`}
+                  {runLabel(b.enabled, b.enabledAt)}
                 </span>
                 <span className="muted" style={{ marginLeft: "auto" }}>→</span>
               </div>
