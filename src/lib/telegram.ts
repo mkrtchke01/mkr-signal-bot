@@ -40,6 +40,22 @@ async function sendCard(chatId: string, photoUrl: string | null, caption: string
   await tg("sendMessage", { chat_id: chatId, text: caption });
 }
 
+// Текстовое сообщение во все активные каналы (для трейдер-бота)
+export async function broadcastText(text: string): Promise<string[]> {
+  if (!botToken()) return ["TELEGRAM_BOT_TOKEN не задан — сообщение не отправлено"];
+  const channels = await activeChannelIds();
+  if (!channels.length) return ["Нет подключённых каналов — сообщение не отправлено"];
+  const errors: string[] = [];
+  for (const chatId of channels) {
+    try {
+      await tg("sendMessage", { chat_id: chatId, text });
+    } catch (e) {
+      errors.push(`chat ${chatId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return errors;
+}
+
 export async function broadcastSignalOpen(s: Signal): Promise<string[]> {
   return broadcast(s, "open", signalOpenCaption(s));
 }

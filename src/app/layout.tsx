@@ -16,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="logo">⚡ MKR Signal Bot</Link>
             <nav>
               <Link href="/">Трейдеры</Link>
+              <Link href="/bot">Трейдер-бот</Link>
               <Link href="/new">+ Создать</Link>
               <Link href="/channels">Каналы</Link>
             </nav>

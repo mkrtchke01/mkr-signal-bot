@@ -1,7 +1,7 @@
 import postgres from "postgres";
 import type {
-  Direction, ExitRule, Rule, Signal, SignalStatus, TF, Trader, TraderConfig,
-  TraderStats, TraderStatus,
+  BotSetup, BotSetupStatus, BotStats, Direction, ExitRule, Rule, Signal,
+  SignalStatus, TF, Trader, TraderConfig, TraderStats, TraderStatus,
 } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,6 +78,34 @@ export function ensureSchema(): Promise<void> {
         type text NOT NULL DEFAULT 'channel',
         active boolean NOT NULL DEFAULT true,
         added_at timestamptz NOT NULL DEFAULT now()
+      )`;
+      await sql`CREATE TABLE IF NOT EXISTS bot_setups (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        symbol text NOT NULL,
+        direction text NOT NULL,
+        status text NOT NULL DEFAULT 'PENDING',
+        entry_price double precision NOT NULL,
+        stop_price double precision NOT NULL,
+        initial_stop double precision NOT NULL,
+        tp1 double precision NOT NULL,
+        tp2 double precision NOT NULL,
+        rr1 double precision NOT NULL DEFAULT 0,
+        rr2 double precision NOT NULL DEFAULT 0,
+        reasons jsonb NOT NULL DEFAULT '{}',
+        regime text NOT NULL DEFAULT '',
+        tp1_done boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        filled_at timestamptz,
+        closed_at timestamptz,
+        exit_price double precision,
+        profit_pct double precision,
+        close_reason text,
+        last_checked_ms bigint NOT NULL DEFAULT 0
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_status ON bot_setups(status)`;
+      await sql`CREATE TABLE IF NOT EXISTS bot_state (
+        key text PRIMARY KEY,
+        value jsonb NOT NULL
       )`;
     })().catch((e) => {
       schemaReady = null; // позволить повторить при следующем запросе
@@ -297,4 +325,126 @@ export async function removeChannel(chatId: string): Promise<void> {
 export async function setChannelActive(chatId: string, active: boolean): Promise<void> {
   const sql = await db();
   await sql`UPDATE channels SET active = ${active} WHERE chat_id = ${chatId}`;
+}
+
+// ---- Трейдер-бот ----
+
+function rowToBotSetup(r: Row): BotSetup {
+  return {
+    id: r.id,
+    symbol: r.symbol,
+    direction: r.direction as Direction,
+    status: r.status as BotSetupStatus,
+    entryPrice: Number(r.entry_price),
+    stopPrice: Number(r.stop_price),
+    initialStop: Number(r.initial_stop),
+    tp1: Number(r.tp1),
+    tp2: Number(r.tp2),
+    rr1: Number(r.rr1),
+    rr2: Number(r.rr2),
+    reasons: j(r.reasons),
+    regime: r.regime,
+    tp1Done: Boolean(r.tp1_done),
+    createdAt: new Date(r.created_at).toISOString(),
+    filledAt: r.filled_at ? new Date(r.filled_at).toISOString() : null,
+    closedAt: r.closed_at ? new Date(r.closed_at).toISOString() : null,
+    exitPrice: r.exit_price === null ? null : Number(r.exit_price),
+    profitPct: r.profit_pct === null ? null : Number(r.profit_pct),
+    closeReason: r.close_reason ?? null,
+    lastCheckedMs: Number(r.last_checked_ms),
+  };
+}
+
+export async function listBotSetups(limit = 100): Promise<BotSetup[]> {
+  const sql = await db();
+  const rows = await sql`SELECT * FROM bot_setups ORDER BY created_at DESC LIMIT ${limit}`;
+  return rows.map(rowToBotSetup);
+}
+
+export async function activeBotSetups(): Promise<BotSetup[]> {
+  const sql = await db();
+  const rows = await sql`SELECT * FROM bot_setups
+    WHERE status IN ('PENDING', 'OPEN') ORDER BY created_at`;
+  return rows.map(rowToBotSetup);
+}
+
+export async function getBotSetup(id: string): Promise<BotSetup | null> {
+  const sql = await db();
+  const rows = await sql`SELECT * FROM bot_setups WHERE id = ${id}`;
+  return rows.length ? rowToBotSetup(rows[0]) : null;
+}
+
+export async function insertBotSetup(s: {
+  symbol: string; direction: Direction; entryPrice: number; stopPrice: number;
+  tp1: number; tp2: number; rr1: number; rr2: number;
+  reasons: BotSetup["reasons"]; regime: string;
+}): Promise<BotSetup> {
+  const sql = await db();
+  const rows = await sql`INSERT INTO bot_setups
+    (symbol, direction, entry_price, stop_price, initial_stop, tp1, tp2, rr1, rr2, reasons, regime, last_checked_ms)
+    VALUES (${s.symbol}, ${s.direction}, ${s.entryPrice}, ${s.stopPrice}, ${s.stopPrice},
+            ${s.tp1}, ${s.tp2}, ${s.rr1}, ${s.rr2}, ${JSON.stringify(s.reasons)}::jsonb,
+            ${s.regime}, ${Date.now()})
+    RETURNING *`;
+  return rowToBotSetup(rows[0]);
+}
+
+export async function fillBotSetup(id: string): Promise<void> {
+  const sql = await db();
+  await sql`UPDATE bot_setups SET status = 'OPEN', filled_at = now()
+    WHERE id = ${id} AND status = 'PENDING'`;
+}
+
+// TP1 достигнут: фиксация 50%, стоп переносится в безубыток (на цену входа)
+export async function markBotTp1(id: string): Promise<void> {
+  const sql = await db();
+  await sql`UPDATE bot_setups SET tp1_done = true, stop_price = entry_price
+    WHERE id = ${id} AND status = 'OPEN'`;
+}
+
+export async function closeBotSetup(
+  id: string, status: BotSetupStatus, exitPrice: number | null,
+  profitPct: number | null, reason: string,
+): Promise<void> {
+  const sql = await db();
+  await sql`UPDATE bot_setups SET status = ${status}, exit_price = ${exitPrice},
+    profit_pct = ${profitPct}, close_reason = ${reason}, closed_at = now()
+    WHERE id = ${id} AND status IN ('PENDING', 'OPEN')`;
+}
+
+export async function touchBotSetup(id: string, lastCheckedMs: number): Promise<void> {
+  const sql = await db();
+  await sql`UPDATE bot_setups SET last_checked_ms = ${lastCheckedMs} WHERE id = ${id}`;
+}
+
+export async function botStats(): Promise<BotStats> {
+  const sql = await db();
+  const rows = await sql`SELECT
+      count(*)::int AS total,
+      count(*) FILTER (WHERE status = 'PENDING')::int AS pending,
+      count(*) FILTER (WHERE status = 'OPEN')::int AS open,
+      count(*) FILTER (WHERE status = 'TP')::int AS tp,
+      count(*) FILTER (WHERE status = 'SL')::int AS sl,
+      count(*) FILTER (WHERE status = 'BE')::int AS be,
+      count(*) FILTER (WHERE status IN ('CANCELLED', 'EXPIRED'))::int AS cancelled,
+      coalesce(sum(profit_pct), 0)::float8 AS profit
+    FROM bot_setups`;
+  const r = rows[0];
+  return {
+    total: r.total, pending: r.pending, open: r.open, tp: r.tp, sl: r.sl,
+    be: r.be, cancelled: r.cancelled, profitPct: r.profit,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getBotState<T = any>(key: string): Promise<T | null> {
+  const sql = await db();
+  const rows = await sql`SELECT value FROM bot_state WHERE key = ${key}`;
+  return rows.length ? j<T>(rows[0].value) : null;
+}
+
+export async function setBotState(key: string, value: unknown): Promise<void> {
+  const sql = await db();
+  await sql`INSERT INTO bot_state (key, value) VALUES (${key}, ${JSON.stringify(value)}::jsonb)
+    ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(value)}::jsonb`;
 }

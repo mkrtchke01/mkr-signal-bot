@@ -101,6 +101,49 @@ export interface Signal {
   lastCheckedMs: number;
 }
 
+// ---- Трейдер-бот (стратегия с уровневыми сетапами) ----
+
+// PENDING — сетап опубликован, ждём налива лимитки; OPEN — в позиции;
+// TP/SL/BE — закрыт по тейку/стопу/безубытку; CANCELLED — отменён
+// (инвалидация, смена режима, вручную); EXPIRED — лимитка не налилась за TTL.
+export type BotSetupStatus =
+  | "PENDING" | "OPEN" | "TP" | "SL" | "BE" | "CANCELLED" | "EXPIRED";
+
+export interface BotSetup {
+  id: string;
+  symbol: string;
+  direction: Direction;
+  status: BotSetupStatus;
+  entryPrice: number;
+  stopPrice: number;   // текущий стоп (после TP1 переносится в безубыток)
+  initialStop: number;
+  tp1: number;
+  tp2: number;
+  rr1: number;
+  rr2: number;
+  reasons: { entry: string; stop: string; tp1: string; tp2: string };
+  regime: string;
+  tp1Done: boolean;
+  createdAt: string;
+  filledAt: string | null;
+  closedAt: string | null;
+  exitPrice: number | null;
+  profitPct: number | null; // % движения цены без плеча (50/50 при частичной фиксации)
+  closeReason: string | null;
+  lastCheckedMs: number;
+}
+
+export interface BotStats {
+  total: number;
+  pending: number;
+  open: number;
+  tp: number;
+  sl: number;
+  be: number;
+  cancelled: number;
+  profitPct: number;
+}
+
 export interface Candle {
   openTime: number;
   open: number;

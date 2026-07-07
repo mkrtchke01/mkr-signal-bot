@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { runBotTick } from "@/lib/bot";
 import { runTick } from "@/lib/tick";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,14 @@ export async function GET(req: NextRequest) {
   }
   try {
     const report = await runTick();
-    return NextResponse.json(report);
+    // Трейдер-бот не должен ломать конструктор (и наоборот)
+    let bot;
+    try {
+      bot = await runBotTick();
+    } catch (e) {
+      bot = { error: e instanceof Error ? e.message : String(e) };
+    }
+    return NextResponse.json({ ...report, bot });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) }, { status: 500 },
