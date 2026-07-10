@@ -111,10 +111,11 @@ export default function BotPage() {
       </p>
       <h1>🤖 Откат к уровням</h1>
       <p className="hint">
-        Автономная стратегия: лонги/шорты с отката к кластеру уровней в сторону
-        режима BTC. Сетапы публикуются заранее с лимиткой, стопом и целями на
-        реальных уровнях, дальше бот сопровождает позицию: налив → TP1 (фикс 50%
-        + безубыток) → TP2. Сигналы уходят во все каналы из раздела «Каналы».
+        Автономная стратегия: лонги/шорты в сторону режима BTC. Сигнал публикуется,
+        только когда цена уже откатилась к кластеру уровней — вход по рынку по
+        текущей цене со стопом и целями на реальных уровнях, дальше бот сопровождает
+        позицию: TP1 (фикс 50% + безубыток) → TP2. Сигналы уходят во все каналы
+        из раздела «Каналы».
       </p>
 
       <div className="card">
@@ -214,7 +215,7 @@ export default function BotPage() {
             </span>
           </div>
           <div className="stats-grid">
-            <div className="stat"><div className="v">{fmtPrice(s.entryPrice)}</div><div className="l">лимитка</div></div>
+            <div className="stat"><div className="v">{fmtPrice(s.entryPrice)}</div><div className="l">вход</div></div>
             <div className="stat"><div className="v neg">{fmtPrice(s.stopPrice)}</div><div className="l">стоп{s.tp1Done ? " (БУ)" : ""}</div></div>
             <div className="stat"><div className="v pos">{fmtPrice(s.tp1)}</div><div className="l">TP1 (RR {s.rr1})</div></div>
             <div className="stat"><div className="v pos">{fmtPrice(s.tp2)}</div><div className="l">TP2 (RR {s.rr2})</div></div>

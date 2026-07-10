@@ -374,6 +374,7 @@ export async function getBotSetup(id: string): Promise<BotSetup | null> {
   return rows.length ? rowToBotSetup(rows[0]) : null;
 }
 
+// Сигнал — вход по рынку: сетап создаётся сразу в статусе OPEN, без ожидания налива
 export async function insertBotSetup(s: {
   symbol: string; direction: Direction; entryPrice: number; stopPrice: number;
   tp1: number; tp2: number; rr1: number; rr2: number;
@@ -381,10 +382,10 @@ export async function insertBotSetup(s: {
 }): Promise<BotSetup> {
   const sql = await db();
   const rows = await sql`INSERT INTO bot_setups
-    (symbol, direction, entry_price, stop_price, initial_stop, tp1, tp2, rr1, rr2, reasons, regime, last_checked_ms)
-    VALUES (${s.symbol}, ${s.direction}, ${s.entryPrice}, ${s.stopPrice}, ${s.stopPrice},
+    (symbol, direction, status, entry_price, stop_price, initial_stop, tp1, tp2, rr1, rr2, reasons, regime, filled_at, last_checked_ms)
+    VALUES (${s.symbol}, ${s.direction}, 'OPEN', ${s.entryPrice}, ${s.stopPrice}, ${s.stopPrice},
             ${s.tp1}, ${s.tp2}, ${s.rr1}, ${s.rr2}, ${JSON.stringify(s.reasons)}::jsonb,
-            ${s.regime}, ${Date.now()})
+            ${s.regime}, now(), ${Date.now()})
     RETURNING *`;
   return rowToBotSetup(rows[0]);
 }

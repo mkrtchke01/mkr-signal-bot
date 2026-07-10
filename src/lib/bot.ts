@@ -1,15 +1,17 @@
 // Трейдер-бот: тик раз в минуту (из общего крона).
-//  - Сопровождение сетапов: налив лимитки, отмена «уехавших», TP1 → безубыток,
-//    TP2/стоп/безубыток — всё с сообщениями в каналы.
-//  - Скан рынка (раз в scanMinutes): режим BTC → поиск сетапов по ликвидным
+//  - Сигнал = вход по рынку прямо сейчас: публикуется, только когда цена уже
+//    откатилась к кластеру уровней. Сетап рождается сразу OPEN.
+//  - Сопровождение: TP1 → фикс 50% + безубыток, TP2/стоп — с сообщениями в каналы.
+//    (PENDING-ветки ниже — легаси для лимиток, опубликованных старой версией.)
+//  - Скан рынка (раз в scanMinutes): режим BTC → поиск точек входа по ликвидным
 //    монетам → публикация лучших по скорингу.
-// Открытые и ожидающие сетапы сопровождаются даже когда бот на паузе —
+// Открытые сетапы сопровождаются даже когда бот на паузе —
 // пауза останавливает только поиск новых.
 
-import { fetchKlines, topSymbols } from "./binance";
+import { fetchKlines, lastPrice, topSymbols } from "./binance";
 import {
   activeBotSetups, closeBotSetup, fillBotSetup, getBotSetup, getBotState,
-  insertBotSetup, markBotTp1, setBotState, touchBotSetup,
+  insertBotSetup, listBotSetups, markBotTp1, setBotState, touchBotSetup,
 } from "./db";
 import {
   botCloseCaption, botFilledCaption, botSetupCaption, botTp1Caption,
@@ -33,7 +35,8 @@ export const DEFAULT_BOT_CONFIG: BotConfig = {
   scanMinutes: 15,
 };
 
-const PENDING_TTL_MS = 48 * 3_600_000; // лимитка не налилась за 48ч — сетап истёк
+const PENDING_TTL_MS = 48 * 3_600_000; // легаси: лимитка не налилась за 48ч — сетап истёк
+const SYMBOL_COOLDOWN_MS = 6 * 3_600_000; // пауза по монете после сетапа — не спамим от того же кластера
 const SCAN_UNIVERSE = 16;              // сколько монет анализируем за скан
 const MIN_QUOTE_VOLUME = 30_000_000;   // фильтр ликвидности, USDT за 24ч
 const EXCLUDED = new Set([
@@ -82,6 +85,7 @@ async function monitorSetup(s: BotSetup, report: BotTickReport): Promise<void> {
   const pct = (v: number) => Math.round(v * 10000) / 100;
   const now = Date.now();
 
+  // Легаси: PENDING-сетапы старой версии (лимитки) дожидаются налива по прежним правилам
   if (s.status === "PENDING" && now - new Date(s.createdAt).getTime() >= PENDING_TTL_MS) {
     await closeBotSetup(s.id, "EXPIRED", null, null,
       "Лимитка не налилась за 48 часов — сетап потерял актуальность.");
@@ -170,7 +174,7 @@ async function scanMarket(cfg: BotConfig, report: BotTickReport): Promise<void> 
   const regime = detectRegime(btc1d, btc4h);
   await setBotState("regime", regime);
 
-  // Смена режима инвалидирует ещё не налитые сетапы против него
+  // Легаси: смена режима инвалидирует ещё не налитые лимитки старой версии
   for (const s of await activeBotSetups()) {
     if (s.status === "PENDING" && s.direction !== regime.bias) {
       await closeBotSetup(s.id, "CANCELLED", null, null,
@@ -186,14 +190,24 @@ async function scanMarket(cfg: BotConfig, report: BotTickReport): Promise<void> 
   if (slots <= 0) return;
   const activeSymbols = new Set(active.map((s) => s.symbol));
 
+  // Кулдаун: вход по рынку срабатывает, пока цена стоит у кластера, — без паузы
+  // после закрытия сетапа бот тут же пересигналил бы ту же самую точку
+  const cooldownCutoff = Date.now() - SYMBOL_COOLDOWN_MS;
+  const cooling = new Set((await listBotSetups(50))
+    .filter((s) => new Date(s.createdAt).getTime() >= cooldownCutoff)
+    .map((s) => s.symbol));
+
+  const skip = (sym: string) => activeSymbols.has(sym) || cooling.has(sym);
   const top = await topSymbols(60);
+  // Живые цены тикеров: вход по рынку, close закрытой 4h-свечи может быть старым
+  const livePrices = new Map(top.map((t) => [t.symbol, t.lastPrice]));
   const universe = top
     .filter((t) => t.quoteVolume >= MIN_QUOTE_VOLUME
-      && !EXCLUDED.has(t.symbol) && !activeSymbols.has(t.symbol))
+      && !EXCLUDED.has(t.symbol) && !skip(t.symbol))
     .slice(0, SCAN_UNIVERSE)
     .map((t) => t.symbol);
   // BTC всегда в выборке — если по нему есть сетап, он может быть лучшим
-  if (!activeSymbols.has("BTCUSDT") && !universe.includes("BTCUSDT")) {
+  if (!skip("BTCUSDT") && !universe.includes("BTCUSDT")) {
     universe.unshift("BTCUSDT");
   }
   report.scanned = universe.length;
@@ -205,7 +219,8 @@ async function scanMarket(cfg: BotConfig, report: BotTickReport): Promise<void> 
         const [d1, h4] = sym === "BTCUSDT"
           ? [btc1d, btc4h]
           : await Promise.all([closedKlines(sym, "1d", 120), closedKlines(sym, "4h", 200)]);
-        const c = findSetup(sym, d1, h4, regime.bias);
+        const live = livePrices.get(sym) ?? await lastPrice(sym);
+        const c = findSetup(sym, d1, h4, regime.bias, live);
         if (c) candidates.push(c);
       } catch (e) {
         report.errors.push(`scan ${sym}: ${e instanceof Error ? e.message : String(e)}`);

@@ -1,5 +1,5 @@
-// Тексты телеграм-сообщений трейдер-бота: сетап публикуется заранее
-// с уровнями и обоснованием, дальше бот сопровождает позицию.
+// Тексты телеграм-сообщений трейдер-бота: сигнал публикуется в момент,
+// когда цена уже у уровня, — вход по рынку сразу, дальше бот сопровождает позицию.
 
 import { fmtPct, fmtPrice } from "./format";
 import type { BotSetup } from "./types";
@@ -15,9 +15,9 @@ function stopPct(s: BotSetup): string {
 
 export function botSetupCaption(s: BotSetup): string {
   return [
-    `🤖 СЕТАП ${dirBadge(s)} #${s.symbol}`,
+    `🤖 СИГНАЛ ${dirBadge(s)} #${s.symbol} — ВХОД СЕЙЧАС`,
     ``,
-    `📍 Лимитка: ${fmtPrice(s.entryPrice)}`,
+    `⚡ Вход по рынку: ${fmtPrice(s.entryPrice)} (текущая цена)`,
     `🛑 Стоп: ${fmtPrice(s.initialStop)} (${stopPct(s)})`,
     `🎯 TP1: ${fmtPrice(s.tp1)} (RR ${s.rr1}) — фикс 50% + стоп в безубыток`,
     `🏁 TP2: ${fmtPrice(s.tp2)} (RR ${s.rr2})`,
@@ -27,8 +27,7 @@ export function botSetupCaption(s: BotSetup): string {
     `TP1: ${s.reasons.tp1}`,
     `TP2: ${s.reasons.tp2}`,
     ``,
-    `⚠️ Стоп ставится сразу вместе с лимиткой. Если цена дойдёт до TP1 без`,
-    `налива или сменится режим BTC — сетап будет отменён отдельным сообщением.`,
+    `⚠️ Сигнал актуален в момент публикации: вход по рынку, стоп ставится сразу.`,
   ].join("\n");
 }
 

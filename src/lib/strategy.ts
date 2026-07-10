@@ -1,11 +1,12 @@
-// Стратегия «Трейдер-бот»: лонги/шорты с отката к кластеру уровней.
+// Стратегия «Трейдер-бот»: лонги/шорты от кластера уровней, вход по рынку.
 //
 // Методология:
 //  1. Режим рынка по BTC (дневные EMA20/50 + 4h-структура) — торгуем только по нему.
 //  2. Монета должна быть в тренде режима (цена относительно дневной EMA20,
 //     EMA20>EMA50 на 4h, растущие/падающие свинги).
-//  3. Вход — лимиткой на откате к кластеру поддержки (4h EMA50 + свинг-лой +
-//     дневная EMA20). Кластер = минимум два уровня рядом.
+//  3. Сигнал публикуется только когда цена УЖЕ откатилась к кластеру поддержки
+//     (4h EMA50 + свинг-лой + дневная EMA20) — вход по рынку по текущей цене,
+//     а не лимиткой заранее. Кластер = минимум два уровня рядом.
 //  4. Стоп — за кластером и последним свингом (буфер в долях ATR):
 //     цена там = структура сломана, идея неправа.
 //  5. Тейки только на реальных уровнях (свинг-хаи, дневная EMA50, хай диапазона),
@@ -50,8 +51,7 @@ export interface SetupCandidate {
 // Минимальные требования к сетапу
 const MIN_RR1 = 1.2;
 const MIN_RR2 = 2.2;
-const MIN_PULLBACK_ATR = 0.3; // вход не ближе 0.3 ATR от цены (иначе это вход по рынку)
-const MAX_PULLBACK_ATR = 4;   // и не дальше 4 ATR (иначе налив маловероятен)
+const TOUCH_ATR = 0.5;        // цена не дальше 0.5 ATR от кластера — «уже у уровня»
 const CLUSTER_ATR = 1.2;      // уровни в пределах 1.2 ATR считаем одним кластером
 const STOP_BUFFER_ATR = 0.6;  // буфер стопа за структурой
 
@@ -129,11 +129,13 @@ interface RawSetup {
 }
 
 // Логика LONG (для SHORT вызывается на зеркальных свечах).
-function findLongRaw(d1: Candle[], h4: Candle[]): RawSetup | null {
+// livePrice — актуальная цена тикера: вход по рынку, поэтому нельзя опираться
+// на close последней закрытой 4h-свечи (ей может быть несколько часов).
+function findLongRaw(d1: Candle[], h4: Candle[], livePrice: number): RawSetup | null {
   if (d1.length < 60 || h4.length < 80) return null;
   const closes1d = d1.map((c) => c.close);
   const closes4h = h4.map((c) => c.close);
-  const price = closes4h[closes4h.length - 1];
+  const price = livePrice;
   const ema20d = lastEma(closes1d, 20);
   const ema50d = lastEma(closes1d, 50);
   const ema20h4 = lastEma(closes4h, 20);
@@ -150,15 +152,20 @@ function findLongRaw(d1: Candle[], h4: Candle[]): RawSetup | null {
   const lastLow = lows[lows.length - 1];
   if (!(lastLow > lows[lows.length - 2])) return null;
 
-  // Кластер поддержки под ценой
-  const supports = [ema50h4, lastLow, ema20d].filter((s) => s < price);
+  // Кластер поддержки: верхний уровень возле цены и всё в пределах CLUSTER_ATR под ним
+  const supports = [ema50h4, lastLow, ema20d].filter((s) => s < price + TOUCH_ATR * a);
   if (!supports.length) return null;
-  const entry = Math.max(...supports);
-  const depth = price - entry;
-  if (depth < MIN_PULLBACK_ATR * a || depth > MAX_PULLBACK_ATR * a) return null;
-  const cluster = supports.filter((s) => entry - s <= CLUSTER_ATR * a);
+  const clusterTop = Math.max(...supports);
+  const cluster = supports.filter((s) => clusterTop - s <= CLUSTER_ATR * a);
   if (cluster.length < 2) return null;
 
+  // Цена УЖЕ у кластера: не дальше TOUCH_ATR над его верхом и не под его дном —
+  // иначе либо вход вдогонку, либо структура уже сломана
+  if (price - clusterTop > TOUCH_ATR * a) return null;
+  if (price < Math.min(...cluster, lastLow)) return null;
+
+  // Вход по рынку по текущей цене
+  const entry = price;
   const stop = Math.min(...cluster, lastLow) - STOP_BUFFER_ATR * a;
   const risk = entry - stop;
   if (risk <= 0) return null;
@@ -195,13 +202,13 @@ function fmt(p: number): string {
 }
 
 export function findSetup(
-  symbol: string, d1: Candle[], h4: Candle[], bias: RegimeBias,
+  symbol: string, d1: Candle[], h4: Candle[], bias: RegimeBias, livePrice: number,
 ): SetupCandidate | null {
-  if (bias === "NEUTRAL") return null;
+  if (bias === "NEUTRAL" || !Number.isFinite(livePrice) || livePrice <= 0) return null;
   const direction: Direction = bias;
   const raw = direction === "LONG"
-    ? findLongRaw(d1, h4)
-    : findLongRaw(d1.map(mirrorCandle), h4.map(mirrorCandle));
+    ? findLongRaw(d1, h4, livePrice)
+    : findLongRaw(d1.map(mirrorCandle), h4.map(mirrorCandle), -livePrice);
   if (!raw) return null;
 
   // Для SHORT возвращаем цены из зеркала обратно
@@ -222,8 +229,9 @@ export function findSetup(
     .replace("30-дневный хай", "30-дневный лой"));
 
   const reasons: SetupReasons = {
-    entry: `откат к ${clusterWord}: ${cluster.map(fmt).join(" + ")} `
-      + `(4h EMA50 / ${long ? "свинг-лой" : "свинг-хай"} 4h / дневная EMA20 — минимум два уровня рядом)`,
+    entry: `цена уже откатилась к ${clusterWord}: ${cluster.map(fmt).join(" + ")} `
+      + `(4h EMA50 / ${long ? "свинг-лой" : "свинг-хай"} 4h / дневная EMA20 — минимум два уровня рядом), `
+      + `вход по рынку по текущей цене`,
     stop: `за ${swingWord} ${fmt(swingRef)} и кластером с буфером 0.6×ATR — `
       + `цена там означает слом структуры, идея неправа`,
     tp1: `${tpSrc(raw.tp1Src)} ${fmt(tp1)} — первое реальное сопротивление, `
