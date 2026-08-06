@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { fmtPct, fmtPrice } from "@/lib/format";
+import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { BotSetup, BotStats } from "@/lib/types";
 
 interface BotConfig { enabled: boolean; maxActive: number; scanMinutes: number }
@@ -85,6 +85,16 @@ export default function BotPage() {
     }
   }
 
+  // Сброс истории: сетапы стираются из базы насовсем, в каналы ничего не уходит
+  async function resetHistory() {
+    const n = data?.stats.total ?? 0;
+    if (!confirm(
+      `Удалить всю историю бота? Сотрутся все ${n} сетапов, включая открытые `
+      + `позиции — без сообщений в каналы. Восстановить будет нельзя.`,
+    )) return;
+    await post({ action: "reset", confirm: "RESET" }, "История очищена");
+  }
+
   async function cancelSetup(s: BotSetup) {
     const what = s.status === "OPEN" ? "закрыть позицию по рынку" : "отменить сетап";
     if (!confirm(`Точно ${what} #${s.symbol}? В каналы уйдёт сообщение об отмене.`)) return;
@@ -116,6 +126,12 @@ export default function BotPage() {
         текущей цене со стопом и целями на реальных уровнях, дальше бот сопровождает
         позицию: TP1 (фикс 50% + безубыток) → TP2. Сигналы уходят во все каналы
         из раздела «Каналы».
+      </p>
+      <p className="hint">
+        💵 Деньги: риск на сделку фиксирован — стоп стоит ровно $3 вместе с
+        комиссиями Bybit (тейкер 0.055% на вход и на выход). Под этот риск бот
+        считает объём позиции, а плечо подбирает так, чтобы ликвидация была минимум
+        вдвое дальше стопа (потолок ×20).
       </p>
 
       <div className="card">
@@ -189,9 +205,21 @@ export default function BotPage() {
           <div className="stat"><div className="v neg">{stats.sl}</div><div className="l">стоп</div></div>
           <div className="stat"><div className="v">{stats.cancelled}</div><div className="l">отменено</div></div>
           <div className="stat">
-            <div className={`v ${stats.profitPct >= 0 ? "pos" : "neg"}`}>{fmtPct(stats.profitPct)}</div>
-            <div className="l">профит (движение цены)</div>
+            <div className={`v ${stats.profitUsd >= 0 ? "pos" : "neg"}`}>{fmtUsd(stats.profitUsd)}</div>
+            <div className="l">итог, $ (риск $3/сделку)</div>
           </div>
+          <div className="stat">
+            <div className={`v ${stats.profitPct >= 0 ? "pos" : "neg"}`}>{fmtPct(stats.profitPct)}</div>
+            <div className="l">движение цены</div>
+          </div>
+        </div>
+        <div className="trader-actions" style={{ marginTop: 10 }}>
+          <button className="btn sm red" disabled={busy || !stats.total} onClick={resetHistory}>
+            🧹 Сбросить историю
+          </button>
+          <span className="muted" style={{ fontSize: 13 }}>
+            удалит все сетапы и открытые позиции без сообщений в каналы
+          </span>
         </div>
       </div>
 
@@ -216,10 +244,38 @@ export default function BotPage() {
           </div>
           <div className="stats-grid">
             <div className="stat"><div className="v">{fmtPrice(s.entryPrice)}</div><div className="l">вход</div></div>
-            <div className="stat"><div className="v neg">{fmtPrice(s.stopPrice)}</div><div className="l">стоп{s.tp1Done ? " (БУ)" : ""}</div></div>
-            <div className="stat"><div className="v pos">{fmtPrice(s.tp1)}</div><div className="l">TP1 (RR {s.rr1})</div></div>
-            <div className="stat"><div className="v pos">{fmtPrice(s.tp2)}</div><div className="l">TP2 (RR {s.rr2})</div></div>
+            <div className="stat">
+              <div className="v neg">{fmtPrice(s.stopPrice)}</div>
+              <div className="l">
+                стоп{s.tp1Done ? " (БУ)" : ""}
+                {s.plan && ` · ${fmtUsd(s.tp1Done ? s.plan.pnl.be : s.plan.pnl.sl)}`}
+              </div>
+            </div>
+            <div className="stat">
+              <div className="v pos">{fmtPrice(s.tp1)}</div>
+              <div className="l">
+                TP1 (RR {s.rr1}){s.plan && ` · ${fmtUsd(s.plan.pnl.tp1)}`}
+              </div>
+            </div>
+            <div className="stat">
+              <div className="v pos">{fmtPrice(s.tp2)}</div>
+              <div className="l">
+                TP2 (RR {s.rr2}){s.plan && ` · ${fmtUsd(s.plan.pnl.tp2)}`}
+              </div>
+            </div>
           </div>
+          {s.plan && (
+            <div className="chips" style={{ marginBottom: 4 }}>
+              <span className="chip">💵 плечо ×{s.plan.leverage}</span>
+              <span className="chip">🔒 маржа {fmtMoney(s.plan.margin)}</span>
+              <span className="chip">📦 объём {fmtMoney(s.plan.notional)}</span>
+              <span className="chip">
+                🧯 ликвидация {fmtPrice(s.plan.liqPrice)} ({s.plan.liqPct.toFixed(2)}%
+                {" vs "}стоп {s.plan.stopPct.toFixed(2)}%)
+              </span>
+              <span className="chip">🧾 комиссия ≈ {fmtMoney(s.plan.feeUsd)}</span>
+            </div>
+          )}
           <div className="hint">
             <div>• Вход: {s.reasons.entry}</div>
             <div>• Стоп: {s.reasons.stop}</div>
@@ -242,7 +298,7 @@ export default function BotPage() {
             <thead>
               <tr>
                 <th>Монета</th><th>Напр.</th><th>Статус</th><th>Вход</th>
-                <th>Выход</th><th>Результат</th><th>Закрыт</th>
+                <th>Выход</th><th>Плечо</th><th>Итог, $</th><th>Движение</th><th>Закрыт</th>
               </tr>
             </thead>
             <tbody>
@@ -253,7 +309,11 @@ export default function BotPage() {
                   <td><span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span></td>
                   <td>{fmtPrice(s.entryPrice)}</td>
                   <td>{fmtPrice(s.exitPrice)}</td>
-                  <td className={s.profitPct === null ? "" : s.profitPct >= 0 ? "pos" : "neg"}>
+                  <td className="muted">{s.plan ? `×${s.plan.leverage}` : "—"}</td>
+                  <td className={s.profitUsd === null ? "" : s.profitUsd >= 0 ? "pos" : "neg"}>
+                    {fmtUsd(s.profitUsd)}
+                  </td>
+                  <td className={s.profitPct === null ? "muted" : s.profitPct >= 0 ? "pos" : "neg"}>
                     {fmtPct(s.profitPct)}
                   </td>
                   <td className="muted">{fmtTime(s.closedAt)}</td>

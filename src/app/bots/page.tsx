@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { fmtPct } from "@/lib/format";
+import { fmtPct, fmtUsd } from "@/lib/format";
 import type { BotStats } from "@/lib/types";
 
 interface BotListItem {
@@ -88,8 +88,9 @@ export default function BotsPage() {
                 <span className="chip">✖️ {s.cancelled} отменено</span>
                 <span className="chip">🔄 {s.open + s.pending} активных</span>
                 <span className="chip">
-                  {s.profitPct >= 0 ? "📈" : "📉"} {fmtPct(s.profitPct)}
+                  {s.profitUsd >= 0 ? "📈" : "📉"} {fmtUsd(s.profitUsd)}
                 </span>
+                <span className="chip">〽️ {fmtPct(s.profitPct)} движения</span>
               </div>
             </div>
           </Link>

@@ -17,6 +17,7 @@ import {
   botCloseCaption, botFilledCaption, botSetupCaption, botTp1Caption,
 } from "./botFormat";
 import { broadcastText } from "./telegram";
+import { buildPlan, realizedPnl } from "./money";
 import { detectRegime, findSetup } from "./strategy";
 import type { RegimeInfo, SetupCandidate } from "./strategy";
 import type { BotSetup, Candle, TF } from "./types";
@@ -85,9 +86,19 @@ async function monitorSetup(s: BotSetup, report: BotTickReport): Promise<void> {
   const pct = (v: number) => Math.round(v * 10000) / 100;
   const now = Date.now();
 
+  // Итог сделки: движение цены + деньги по плану сетапа (плечо и комиссии Bybit).
+  // При взятом TP1 половина уже зафиксирована по TP1, остаток выходит по exit.
+  const result = (exit: number, tp1Taken: boolean) => ({
+    exitPrice: exit,
+    profitPct: pct(tp1Taken ? 0.5 * move(s.tp1) + 0.5 * move(exit) : move(exit)),
+    profitUsd: s.plan
+      ? realizedPnl(s.plan, s.direction, s.entryPrice, s.tp1, exit, tp1Taken)
+      : null,
+  });
+
   // Легаси: PENDING-сетапы старой версии (лимитки) дожидаются налива по прежним правилам
   if (s.status === "PENDING" && now - new Date(s.createdAt).getTime() >= PENDING_TTL_MS) {
-    await closeBotSetup(s.id, "EXPIRED", null, null,
+    await closeBotSetup(s.id, "EXPIRED",
       "Лимитка не налилась за 48 часов — сетап потерял актуальность.");
     await broadcastClose(s.id, report);
     report.cancelled.push(s.symbol);
@@ -113,7 +124,7 @@ async function monitorSetup(s: BotSetup, report: BotTickReport): Promise<void> {
       } else {
         const ranAway = isLong ? c.high >= s.tp1 : c.low <= s.tp1;
         if (ranAway) {
-          await closeBotSetup(s.id, "CANCELLED", null, null,
+          await closeBotSetup(s.id, "CANCELLED",
             "Цена дошла до TP1 без налива лимитки — отмена, вдогонку не входим.");
           await broadcastClose(s.id, report);
           report.cancelled.push(s.symbol);
@@ -127,10 +138,10 @@ async function monitorSetup(s: BotSetup, report: BotTickReport): Promise<void> {
     const hitStop = isLong ? c.low <= stop : c.high >= stop;
     if (hitStop) {
       const st = tp1Done ? "BE" : "SL";
-      const profit = tp1Done ? pct(0.5 * move(s.tp1) + 0.5 * move(stop)) : pct(move(stop));
-      await closeBotSetup(s.id, st, stop, profit, tp1Done
+      await closeBotSetup(s.id, st, tp1Done
         ? "Остаток закрыт в безубытке — половина профита с TP1 сохранена."
-        : "Структура сломана — идея неправа, выходим по стопу.");
+        : "Структура сломана — идея неправа, выходим по стопу.",
+      result(stop, tp1Done));
       await broadcastClose(s.id, report);
       report.closed.push({ symbol: s.symbol, status: st });
       return;
@@ -147,8 +158,8 @@ async function monitorSetup(s: BotSetup, report: BotTickReport): Promise<void> {
     if (tp1Done) {
       const hitT2 = isLong ? c.high >= s.tp2 : c.low <= s.tp2;
       if (hitT2) {
-        const profit = pct(0.5 * move(s.tp1) + 0.5 * move(s.tp2));
-        await closeBotSetup(s.id, "TP", s.tp2, profit, "Обе цели взяты полностью.");
+        await closeBotSetup(s.id, "TP", "Обе цели взяты полностью.",
+          result(s.tp2, true));
         await broadcastClose(s.id, report);
         report.closed.push({ symbol: s.symbol, status: "TP" });
         return;
@@ -177,7 +188,7 @@ async function scanMarket(cfg: BotConfig, report: BotTickReport): Promise<void> 
   // Легаси: смена режима инвалидирует ещё не налитые лимитки старой версии
   for (const s of await activeBotSetups()) {
     if (s.status === "PENDING" && s.direction !== regime.bias) {
-      await closeBotSetup(s.id, "CANCELLED", null, null,
+      await closeBotSetup(s.id, "CANCELLED",
         `Режим BTC сменился (${regime.bias === "NEUTRAL" ? "нейтральный" : regime.bias}) — сетап отменён до входа.`);
       await broadcastClose(s.id, report);
       report.cancelled.push(s.symbol);
@@ -229,12 +240,21 @@ async function scanMarket(cfg: BotConfig, report: BotTickReport): Promise<void> 
   }
 
   candidates.sort((a, b) => b.score - a.score);
-  for (const c of candidates.slice(0, slots)) {
+  let published = 0;
+  for (const c of candidates) {
+    if (published >= slots) break;
+    // Денежный план: объём под риск $3, плечо с запасом до ликвидации, комиссии Bybit
+    const plan = buildPlan(c.direction, c.entry, c.stop, c.tp1, c.tp2);
+    if (!plan) {
+      report.errors.push(`plan ${c.symbol}: не удалось рассчитать объём и плечо`);
+      continue;
+    }
     const setup = await insertBotSetup({
       symbol: c.symbol, direction: c.direction, entryPrice: c.entry,
       stopPrice: c.stop, tp1: c.tp1, tp2: c.tp2, rr1: c.rr1, rr2: c.rr2,
-      reasons: c.reasons, regime: regime.note,
+      reasons: c.reasons, regime: regime.note, plan,
     });
+    published++;
     report.newSetups.push(c.symbol);
     report.errors.push(...await broadcastText(botSetupCaption(setup)));
   }

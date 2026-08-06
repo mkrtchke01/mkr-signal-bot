@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getBotConfig, getSavedRegime, runBotTick, saveBotConfig,
 } from "@/lib/bot";
-import { botStats, listBotSetups } from "@/lib/db";
+import { botStats, listBotSetups, wipeBotSetups } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // ручной скан делает десятки запросов к Binance
@@ -23,6 +23,7 @@ export async function GET() {
 // POST { action: "toggle" } — вкл/выкл поиск сетапов
 // POST { action: "config", maxActive?, scanMinutes? } — настройки
 // POST { action: "scan" } — форс-скан прямо сейчас (только если бот включён)
+// POST { action: "reset", confirm: "RESET" } — снести всю историю и открытые сетапы
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -52,6 +53,16 @@ export async function POST(req: NextRequest) {
       }
       const report = await runBotTick({ forceScan: true });
       return NextResponse.json({ ok: true, report });
+    }
+
+    // Полный сброс: сетапы удаляются безвозвратно и без сообщений в каналы.
+    // Настройки бота (пауза, лимиты, период скана) не трогаем.
+    if (body.action === "reset") {
+      if (body.confirm !== "RESET") {
+        return NextResponse.json({ error: "Сброс не подтверждён" }, { status: 400 });
+      }
+      const removed = await wipeBotSetups();
+      return NextResponse.json({ ok: true, removed });
     }
 
     return NextResponse.json({ error: "Неизвестное действие" }, { status: 400 });

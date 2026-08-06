@@ -13,6 +13,19 @@ export function fmtPct(v: number | null | undefined): string {
   return `${s}${v.toFixed(2)}%`;
 }
 
+// Результат сделки: со знаком, чтобы плюс/минус читались с первого взгляда
+export function fmtUsd(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  const s = v > 0 ? "+" : v < 0 ? "−" : "";
+  return `${s}$${Math.abs(v).toFixed(2)}`;
+}
+
+// Абсолютная сумма (маржа, объём) — без знака
+export function fmtMoney(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  return `$${v.toFixed(2)}`;
+}
+
 export function ruleLabel(r: Rule): string {
   switch (r.type) {
     case "rsi":

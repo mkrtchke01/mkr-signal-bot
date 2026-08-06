@@ -110,6 +110,28 @@ export interface Signal {
 export type BotSetupStatus =
   | "PENDING" | "OPEN" | "TP" | "SL" | "BE" | "CANCELLED" | "EXPIRED";
 
+// Денежный план сделки: фиксированный риск в $, безопасное плечо, комиссии Bybit.
+// Считается один раз в момент сигнала и хранится вместе с сетапом — чтобы итог
+// закрытия считался по тем же цифрам, что ушли в канал.
+export interface TradePlan {
+  riskUsd: number;   // потеря на стопе, включая комиссии
+  feeRate: number;   // тейкерская комиссия Bybit, доля
+  feeUsd: number;    // ориентировочная комиссия за круг, $
+  leverage: number;
+  qty: number;       // размер позиции в монете
+  notional: number;  // объём позиции, USDT
+  margin: number;    // залог, USDT
+  liqPrice: number;
+  stopPct: number;   // дистанция до стопа, % от входа
+  liqPct: number;    // дистанция до ликвидации, % от входа
+  pnl: {
+    tp1: number; // фиксация 50% на TP1
+    tp2: number; // итог сценария TP1 + TP2
+    be: number;  // итог сценария TP1 + остаток в безубытке
+    sl: number;  // стоп без TP1 (= −riskUsd)
+  };
+}
+
 export interface BotSetup {
   id: string;
   symbol: string;
@@ -124,12 +146,14 @@ export interface BotSetup {
   rr2: number;
   reasons: { entry: string; stop: string; tp1: string; tp2: string };
   regime: string;
+  plan: TradePlan | null; // null только у сетапов, созданных до денежной модели
   tp1Done: boolean;
   createdAt: string;
   filledAt: string | null;
   closedAt: string | null;
   exitPrice: number | null;
   profitPct: number | null; // % движения цены без плеча (50/50 при частичной фиксации)
+  profitUsd: number | null; // фактический результат в $ с плечом и комиссиями
   closeReason: string | null;
   lastCheckedMs: number;
 }
@@ -143,6 +167,7 @@ export interface BotStats {
   be: number;
   cancelled: number;
   profitPct: number;
+  profitUsd: number;
 }
 
 export interface Candle {
