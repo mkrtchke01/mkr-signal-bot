@@ -60,7 +60,7 @@ export default function BotsPage() {
       </p>
       {bots.map((b) => {
         const s = b.stats;
-        const closedTrades = s.tp + s.sl + s.be;
+        const closed = s.total - s.open;
         return (
           <Link
             key={b.slug}
@@ -80,13 +80,12 @@ export default function BotsPage() {
               </div>
               <p className="hint" style={{ margin: 0 }}>{b.short}</p>
               <div className="chips">
-                <span className="chip">📊 {s.total} сетапов</span>
-                <span className="chip">💼 {closedTrades} сделок</span>
+                <span className="chip">💼 {closed} сделок</span>
                 <span className="chip">✅ {s.tp} по тейку</span>
                 <span className="chip">🟨 {s.be} безубыток</span>
                 <span className="chip">⛔ {s.sl} по стопу</span>
-                <span className="chip">✖️ {s.cancelled} отменено</span>
-                <span className="chip">🔄 {s.open + s.pending} активных</span>
+                <span className="chip">⌛ {s.time} по времени</span>
+                <span className="chip">🔄 {s.open} активных</span>
                 <span className="chip">
                   {s.profitUsd >= 0 ? "📈" : "📉"} {fmtUsd(s.profitUsd)}
                 </span>

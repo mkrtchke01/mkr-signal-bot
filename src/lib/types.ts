@@ -107,8 +107,11 @@ export interface Signal {
 // TP/SL/BE — закрыт по тейку/стопу/безубытку; CANCELLED — отменён (вручную).
 // Легаси старой лимиточной версии: PENDING — ждал налива лимитки,
 // EXPIRED — лимитка не налилась за TTL.
+// OPEN — в позиции (сигнал = вход по рынку); TP/SL/BE — закрыт по целям,
+// стопу или безубытку; TIME — не сработало за лимит удержания, вышли по рынку;
+// CANCELLED — закрыт вручную.
 export type BotSetupStatus =
-  | "PENDING" | "OPEN" | "TP" | "SL" | "BE" | "CANCELLED" | "EXPIRED";
+  | "OPEN" | "TP" | "SL" | "BE" | "TIME" | "CANCELLED";
 
 // Денежный план сделки: фиксированный риск в $, безопасное плечо, комиссии Bybit.
 // Считается один раз в момент сигнала и хранится вместе с сетапом — чтобы итог
@@ -134,6 +137,7 @@ export interface TradePlan {
 
 export interface BotSetup {
   id: string;
+  bot: string;         // slug кастомного бота из CUSTOM_BOTS
   symbol: string;
   direction: Direction;
   status: BotSetupStatus;
@@ -160,12 +164,12 @@ export interface BotSetup {
 
 export interface BotStats {
   total: number;
-  pending: number;
   open: number;
   tp: number;
   sl: number;
   be: number;
-  cancelled: number;
+  time: number;      // закрыто по лимиту удержания
+  cancelled: number; // закрыто вручную
   profitPct: number;
   profitUsd: number;
 }

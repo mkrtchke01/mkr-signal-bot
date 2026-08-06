@@ -1,7 +1,8 @@
 import postgres from "postgres";
 import type {
-  BotSetup, BotSetupStatus, BotStats, Direction, ExitRule, Rule, Signal,
-  SignalStatus, TF, TradePlan, Trader, TraderConfig, TraderStats, TraderStatus,
+  BotSetup, BotSetupStatus, BotStats, Direction, ExitRule, Rule,
+  Signal, SignalStatus, TF, TradePlan, Trader, TraderConfig, TraderStats,
+  TraderStatus,
 } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,11 +106,23 @@ export function ensureSchema(): Promise<void> {
       // Денежный план сделки и фактический результат в долларах
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS plan jsonb`;
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS profit_usd double precision`;
+      // Несколько кастомных ботов живут в одной таблице, различаются по slug
+      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
+        bot text NOT NULL DEFAULT 'breakout-trend'`;
       await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_status ON bot_setups(status)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_bot ON bot_setups(bot, created_at DESC)`;
+      // Бот «Откат к уровням» удалён как убыточный — чистим его данные.
+      // Повторный запуск ничего не находит и ничего не делает.
+      await sql`DELETE FROM bot_setups WHERE bot = 'pullback-levels'`;
       await sql`CREATE TABLE IF NOT EXISTS bot_state (
         key text PRIMARY KEY,
         value jsonb NOT NULL
       )`;
+      // Состояние именуется как "<бот>:<ключ>". Ключи удалённого бота
+      // и его безымянные предшественники больше не нужны.
+      await sql`DELETE FROM bot_state
+        WHERE key IN ('config', 'regime', 'lastScanMs')
+           OR key LIKE 'pullback-levels:%'`;
     })().catch((e) => {
       schemaReady = null; // позволить повторить при следующем запросе
       throw e;
@@ -335,6 +348,7 @@ export async function setChannelActive(chatId: string, active: boolean): Promise
 function rowToBotSetup(r: Row): BotSetup {
   return {
     id: r.id,
+    bot: r.bot,
     symbol: r.symbol,
     direction: r.direction as Direction,
     status: r.status as BotSetupStatus,
@@ -361,16 +375,17 @@ function rowToBotSetup(r: Row): BotSetup {
   };
 }
 
-export async function listBotSetups(limit = 100): Promise<BotSetup[]> {
+export async function listBotSetups(bot: string, limit = 100): Promise<BotSetup[]> {
   const sql = await db();
-  const rows = await sql`SELECT * FROM bot_setups ORDER BY created_at DESC LIMIT ${limit}`;
+  const rows = await sql`SELECT * FROM bot_setups WHERE bot = ${bot}
+    ORDER BY created_at DESC LIMIT ${limit}`;
   return rows.map(rowToBotSetup);
 }
 
-export async function activeBotSetups(): Promise<BotSetup[]> {
+export async function activeBotSetups(bot: string): Promise<BotSetup[]> {
   const sql = await db();
   const rows = await sql`SELECT * FROM bot_setups
-    WHERE status IN ('PENDING', 'OPEN') ORDER BY created_at`;
+    WHERE bot = ${bot} AND status = 'OPEN' ORDER BY created_at`;
   return rows.map(rowToBotSetup);
 }
 
@@ -382,24 +397,21 @@ export async function getBotSetup(id: string): Promise<BotSetup | null> {
 
 // Сигнал — вход по рынку: сетап создаётся сразу в статусе OPEN, без ожидания налива
 export async function insertBotSetup(s: {
-  symbol: string; direction: Direction; entryPrice: number; stopPrice: number;
+  bot: string; symbol: string; direction: Direction;
+  entryPrice: number; stopPrice: number;
   tp1: number; tp2: number; rr1: number; rr2: number;
   reasons: BotSetup["reasons"]; regime: string; plan: TradePlan;
 }): Promise<BotSetup> {
   const sql = await db();
   const rows = await sql`INSERT INTO bot_setups
-    (symbol, direction, status, entry_price, stop_price, initial_stop, tp1, tp2, rr1, rr2, reasons, regime, plan, filled_at, last_checked_ms)
-    VALUES (${s.symbol}, ${s.direction}, 'OPEN', ${s.entryPrice}, ${s.stopPrice}, ${s.stopPrice},
+    (bot, symbol, direction, status, entry_price, stop_price, initial_stop,
+     tp1, tp2, rr1, rr2, reasons, regime, plan, filled_at, last_checked_ms)
+    VALUES (${s.bot}, ${s.symbol}, ${s.direction}, 'OPEN', ${s.entryPrice},
+            ${s.stopPrice}, ${s.stopPrice},
             ${s.tp1}, ${s.tp2}, ${s.rr1}, ${s.rr2}, ${JSON.stringify(s.reasons)}::jsonb,
             ${s.regime}, ${JSON.stringify(s.plan)}::jsonb, now(), ${Date.now()})
     RETURNING *`;
   return rowToBotSetup(rows[0]);
-}
-
-export async function fillBotSetup(id: string): Promise<void> {
-  const sql = await db();
-  await sql`UPDATE bot_setups SET status = 'OPEN', filled_at = now()
-    WHERE id = ${id} AND status = 'PENDING'`;
 }
 
 // TP1 достигнут: фиксация 50%, стоп переносится в безубыток (на цену входа)
@@ -426,13 +438,13 @@ export async function closeBotSetup(
     profit_pct = ${result?.profitPct ?? null},
     profit_usd = ${result?.profitUsd ?? null},
     close_reason = ${reason}, closed_at = now()
-    WHERE id = ${id} AND status IN ('PENDING', 'OPEN')`;
+    WHERE id = ${id} AND status = 'OPEN'`;
 }
 
 // Полный сброс истории бота: сетапы и открытые позиции удаляются безвозвратно.
-export async function wipeBotSetups(): Promise<number> {
+export async function wipeBotSetups(bot: string): Promise<number> {
   const sql = await db();
-  const rows = await sql`DELETE FROM bot_setups RETURNING id`;
+  const rows = await sql`DELETE FROM bot_setups WHERE bot = ${bot} RETURNING id`;
   return rows.length;
 }
 
@@ -441,37 +453,39 @@ export async function touchBotSetup(id: string, lastCheckedMs: number): Promise<
   await sql`UPDATE bot_setups SET last_checked_ms = ${lastCheckedMs} WHERE id = ${id}`;
 }
 
-export async function botStats(): Promise<BotStats> {
+export async function botStats(bot: string): Promise<BotStats> {
   const sql = await db();
   const rows = await sql`SELECT
       count(*)::int AS total,
-      count(*) FILTER (WHERE status = 'PENDING')::int AS pending,
       count(*) FILTER (WHERE status = 'OPEN')::int AS open,
       count(*) FILTER (WHERE status = 'TP')::int AS tp,
       count(*) FILTER (WHERE status = 'SL')::int AS sl,
       count(*) FILTER (WHERE status = 'BE')::int AS be,
-      count(*) FILTER (WHERE status IN ('CANCELLED', 'EXPIRED'))::int AS cancelled,
+      count(*) FILTER (WHERE status = 'TIME')::int AS "time",
+      count(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled,
       coalesce(sum(profit_pct), 0)::float8 AS profit,
       coalesce(sum(profit_usd), 0)::float8 AS profit_usd
-    FROM bot_setups`;
+    FROM bot_setups WHERE bot = ${bot}`;
   const r = rows[0];
   return {
-    total: r.total, pending: r.pending, open: r.open, tp: r.tp, sl: r.sl,
-    be: r.be, cancelled: r.cancelled,
+    total: r.total, open: r.open, tp: r.tp, sl: r.sl, be: r.be,
+    time: r.time, cancelled: r.cancelled,
     profitPct: r.profit,
     profitUsd: Math.round(r.profit_usd * 100) / 100,
   };
 }
 
+// Состояние ботов лежит в одной таблице — ключ всегда с префиксом бота
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getBotState<T = any>(key: string): Promise<T | null> {
+export async function getBotState<T = any>(bot: string, key: string): Promise<T | null> {
   const sql = await db();
-  const rows = await sql`SELECT value FROM bot_state WHERE key = ${key}`;
+  const rows = await sql`SELECT value FROM bot_state WHERE key = ${`${bot}:${key}`}`;
   return rows.length ? j<T>(rows[0].value) : null;
 }
 
-export async function setBotState(key: string, value: unknown): Promise<void> {
+export async function setBotState(bot: string, key: string, value: unknown): Promise<void> {
   const sql = await db();
-  await sql`INSERT INTO bot_state (key, value) VALUES (${key}, ${JSON.stringify(value)}::jsonb)
+  const k = `${bot}:${key}`;
+  await sql`INSERT INTO bot_state (key, value) VALUES (${k}, ${JSON.stringify(value)}::jsonb)
     ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(value)}::jsonb`;
 }

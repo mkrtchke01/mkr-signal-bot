@@ -1,17 +1,23 @@
 "use client";
 
+// Общая панель кастомного бота: статус, настройки, статистика, активные сетапы
+// и история. Работает и с фиксированными целями, и с трейлингом.
+
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { BotSetup, BotStats } from "@/lib/types";
 
-interface BotConfig { enabled: boolean; maxActive: number; scanMinutes: number }
+interface BotConfig {
+  enabled: boolean; maxActive: number; scanMinutes: number; maxHoldHours: number;
+}
 interface Regime {
   bias: "LONG" | "SHORT" | "NEUTRAL";
   price: number; ema20d: number; ema50d: number;
   note: string; updatedMs: number;
 }
 interface BotData {
+  meta: { slug: string; name: string; short: string };
   config: BotConfig;
   regime: Regime | null;
   setups: BotSetup[];
@@ -19,17 +25,16 @@ interface BotData {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING: "ждёт налива",
   OPEN: "в позиции",
-  TP: "тейк",
+  TP: "TP2 взят",
   SL: "стоп",
   BE: "безубыток",
-  CANCELLED: "отменён",
-  EXPIRED: "истёк",
+  TIME: "по времени",
+  CANCELLED: "закрыт вручную",
 };
 const STATUS_BADGE: Record<string, string> = {
-  PENDING: "open", OPEN: "running", TP: "tp", SL: "sl",
-  BE: "time", CANCELLED: "paused", EXPIRED: "paused",
+  OPEN: "running", TP: "tp", SL: "sl",
+  BE: "time", TIME: "time", CANCELLED: "paused",
 };
 
 function fmtTime(iso: string | null): string {
@@ -39,7 +44,9 @@ function fmtTime(iso: string | null): string {
   });
 }
 
-export default function BotPage() {
+export default function BotDashboard({
+  slug, title, intro,
+}: { slug: string; title: string; intro: React.ReactNode }) {
   const [data, setData] = useState<BotData | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,7 +54,7 @@ export default function BotPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/bot");
+      const res = await fetch(`/api/bot?bot=${slug}`);
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error ?? `${res.status} ${res.statusText}`);
@@ -57,7 +64,7 @@ export default function BotPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [slug]);
 
   useEffect(() => {
     load();
@@ -69,7 +76,7 @@ export default function BotPage() {
     setBusy(true);
     setNote("");
     try {
-      const res = await fetch("/api/bot", {
+      const res = await fetch(`/api/bot?bot=${slug}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -89,15 +96,16 @@ export default function BotPage() {
   async function resetHistory() {
     const n = data?.stats.total ?? 0;
     if (!confirm(
-      `Удалить всю историю бота? Сотрутся все ${n} сетапов, включая открытые `
-      + `позиции — без сообщений в каналы. Восстановить будет нельзя.`,
+      `Удалить всю историю бота «${title}»? Сотрутся все ${n} сетапов, включая `
+      + `открытые позиции — без сообщений в каналы. Восстановить будет нельзя.`,
     )) return;
     await post({ action: "reset", confirm: "RESET" }, "История очищена");
   }
 
   async function cancelSetup(s: BotSetup) {
-    const what = s.status === "OPEN" ? "закрыть позицию по рынку" : "отменить сетап";
-    if (!confirm(`Точно ${what} #${s.symbol}? В каналы уйдёт сообщение об отмене.`)) return;
+    if (!confirm(
+      `Точно закрыть позицию по рынку #${s.symbol}? В каналы уйдёт сообщение.`,
+    )) return;
     setBusy(true);
     try {
       await fetch(`/api/bot/setups/${s.id}`, { method: "DELETE" });
@@ -111,28 +119,16 @@ export default function BotPage() {
   if (!data) return <p className="muted">Загрузка…</p>;
 
   const { config, regime, setups, stats } = data;
-  const active = setups.filter((s) => s.status === "PENDING" || s.status === "OPEN");
-  const history = setups.filter((s) => s.status !== "PENDING" && s.status !== "OPEN");
+  const active = setups.filter((s) => s.status === "OPEN");
+  const history = setups.filter((s) => s.status !== "OPEN");
 
   return (
     <main>
       <p style={{ margin: "0 0 6px" }}>
         <Link href="/bots" className="muted">← Кастомные боты</Link>
       </p>
-      <h1>🤖 Откат к уровням</h1>
-      <p className="hint">
-        Автономная стратегия: лонги/шорты в сторону режима BTC. Сигнал публикуется,
-        только когда цена уже откатилась к кластеру уровней — вход по рынку по
-        текущей цене со стопом и целями на реальных уровнях, дальше бот сопровождает
-        позицию: TP1 (фикс 50% + безубыток) → TP2. Сигналы уходят во все каналы
-        из раздела «Каналы».
-      </p>
-      <p className="hint">
-        💵 Деньги: риск на сделку фиксирован — стоп стоит ровно $3 вместе с
-        комиссиями Bybit (тейкер 0.055% на вход и на выход). Под этот риск бот
-        считает объём позиции, а плечо подбирает так, чтобы ликвидация была минимум
-        вдвое дальше стопа (потолок ×20).
-      </p>
+      <h1>{title}</h1>
+      {intro}
 
       <div className="card">
         <div className="trader-head">
@@ -171,7 +167,7 @@ export default function BotPage() {
             🔍 Сканировать сейчас
           </button>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
-            макс. сетапов
+            макс. позиций
             <select
               value={config.maxActive}
               disabled={busy}
@@ -189,7 +185,7 @@ export default function BotPage() {
               style={{ width: 90 }}
               onChange={(e) => post({ action: "config", scanMinutes: Number(e.target.value) })}
             >
-              {[15, 30, 60, 120, 240].map((n) => <option key={n} value={n}>{n} мин</option>)}
+              {[5, 15, 30, 60, 120, 240].map((n) => <option key={n} value={n}>{n} мин</option>)}
             </select>
           </label>
         </div>
@@ -199,11 +195,12 @@ export default function BotPage() {
       <div className="card">
         <h2>Статистика</h2>
         <div className="stats-grid">
-          <div className="stat"><div className="v">{stats.total}</div><div className="l">сетапов всего</div></div>
-          <div className="stat"><div className="v pos">{stats.tp}</div><div className="l">TP2</div></div>
+          <div className="stat"><div className="v">{stats.total}</div><div className="l">сделок всего</div></div>
+          <div className="stat"><div className="v pos">{stats.tp}</div><div className="l">TP2 взят</div></div>
           <div className="stat"><div className="v">{stats.be}</div><div className="l">безубыток</div></div>
           <div className="stat"><div className="v neg">{stats.sl}</div><div className="l">стоп</div></div>
-          <div className="stat"><div className="v">{stats.cancelled}</div><div className="l">отменено</div></div>
+          <div className="stat"><div className="v">{stats.time}</div><div className="l">по времени</div></div>
+          <div className="stat"><div className="v">{stats.cancelled}</div><div className="l">вручную</div></div>
           <div className="stat">
             <div className={`v ${stats.profitUsd >= 0 ? "pos" : "neg"}`}>{fmtUsd(stats.profitUsd)}</div>
             <div className="l">итог, $ (риск $3/сделку)</div>
@@ -223,72 +220,76 @@ export default function BotPage() {
         </div>
       </div>
 
-      <h2>Активные сетапы {active.length ? `(${active.length})` : ""}</h2>
+      <h2>Активные позиции {active.length ? `(${active.length})` : ""}</h2>
       {!active.length && (
         <div className="card"><p className="muted">
-          Пока нет активных сетапов. {config.enabled
+          Пока нет активных позиций. {config.enabled
             ? "Бот ищет — новые появятся после очередного скана."
             : "Запусти бота, чтобы начать поиск."}
         </p></div>
       )}
-      {active.map((s) => (
-        <div className="card trader-card" key={s.id}>
-          <div className="trader-head">
-            <span className="sym">#{s.symbol}</span>
-            <span className={`badge ${s.direction.toLowerCase()}`}>{s.direction}</span>
-            <span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
-            {s.tp1Done && <span className="badge tp">TP1 взят, стоп в БУ</span>}
-            <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
-              {fmtTime(s.createdAt)}
-            </span>
-          </div>
-          <div className="stats-grid">
-            <div className="stat"><div className="v">{fmtPrice(s.entryPrice)}</div><div className="l">вход</div></div>
-            <div className="stat">
-              <div className="v neg">{fmtPrice(s.stopPrice)}</div>
-              <div className="l">
-                стоп{s.tp1Done ? " (БУ)" : ""}
-                {s.plan && ` · ${fmtUsd(s.tp1Done ? s.plan.pnl.be : s.plan.pnl.sl)}`}
-              </div>
-            </div>
-            <div className="stat">
-              <div className="v pos">{fmtPrice(s.tp1)}</div>
-              <div className="l">
-                TP1 (RR {s.rr1}){s.plan && ` · ${fmtUsd(s.plan.pnl.tp1)}`}
-              </div>
-            </div>
-            <div className="stat">
-              <div className="v pos">{fmtPrice(s.tp2)}</div>
-              <div className="l">
-                TP2 (RR {s.rr2}){s.plan && ` · ${fmtUsd(s.plan.pnl.tp2)}`}
-              </div>
-            </div>
-          </div>
-          {s.plan && (
-            <div className="chips" style={{ marginBottom: 4 }}>
-              <span className="chip">💵 плечо ×{s.plan.leverage}</span>
-              <span className="chip">🔒 маржа {fmtMoney(s.plan.margin)}</span>
-              <span className="chip">📦 объём {fmtMoney(s.plan.notional)}</span>
-              <span className="chip">
-                🧯 ликвидация {fmtPrice(s.plan.liqPrice)} ({s.plan.liqPct.toFixed(2)}%
-                {" vs "}стоп {s.plan.stopPct.toFixed(2)}%)
+      {active.map((s) => {
+        const ageH = (Date.now() - new Date(s.createdAt).getTime()) / 3_600_000;
+        const leftDays = Math.max(0, (config.maxHoldHours - ageH) / 24);
+        return (
+          <div className="card trader-card" key={s.id}>
+            <div className="trader-head">
+              <span className="sym">#{s.symbol}</span>
+              <span className={`badge ${s.direction.toLowerCase()}`}>{s.direction}</span>
+              <span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
+              {s.tp1Done && <span className="badge tp">TP1 взят, стоп в БУ</span>}
+              <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
+                {fmtTime(s.createdAt)} · осталось {leftDays.toFixed(1)} дн
               </span>
-              <span className="chip">🧾 комиссия ≈ {fmtMoney(s.plan.feeUsd)}</span>
             </div>
-          )}
-          <div className="hint">
-            <div>• Вход: {s.reasons.entry}</div>
-            <div>• Стоп: {s.reasons.stop}</div>
-            <div>• TP1: {s.reasons.tp1}</div>
-            <div>• TP2: {s.reasons.tp2}</div>
+            <div className="stats-grid">
+              <div className="stat"><div className="v">{fmtPrice(s.entryPrice)}</div><div className="l">вход</div></div>
+              <div className="stat">
+                <div className={`v ${s.tp1Done ? "pos" : "neg"}`}>{fmtPrice(s.stopPrice)}</div>
+                <div className="l">
+                  стоп{s.tp1Done ? " (БУ)" : ""}
+                  {s.plan && ` · ${fmtUsd(s.tp1Done ? s.plan.pnl.be : s.plan.pnl.sl)}`}
+                </div>
+              </div>
+              <div className="stat">
+                <div className="v pos">{fmtPrice(s.tp1)}</div>
+                <div className="l">
+                  TP1 ({s.rr1}R){s.plan && ` · ${fmtUsd(s.plan.pnl.tp1)}`}
+                </div>
+              </div>
+              <div className="stat">
+                <div className="v pos">{fmtPrice(s.tp2)}</div>
+                <div className="l">
+                  TP2 ({s.rr2}R){s.plan && ` · ${fmtUsd(s.plan.pnl.tp2)}`}
+                </div>
+              </div>
+            </div>
+            {s.plan && (
+              <div className="chips" style={{ marginBottom: 4 }}>
+                <span className="chip">💵 плечо ×{s.plan.leverage}</span>
+                <span className="chip">🔒 маржа {fmtMoney(s.plan.margin)}</span>
+                <span className="chip">📦 объём {fmtMoney(s.plan.notional)}</span>
+                <span className="chip">
+                  🧯 ликвидация {fmtPrice(s.plan.liqPrice)} ({s.plan.liqPct.toFixed(2)}%
+                  {" vs "}стоп {s.plan.stopPct.toFixed(2)}%)
+                </span>
+                <span className="chip">🧾 комиссия ≈ {fmtMoney(s.plan.feeUsd)}</span>
+              </div>
+            )}
+            <div className="hint">
+              <div>• Вход: {s.reasons.entry}</div>
+              <div>• Стоп: {s.reasons.stop}</div>
+              <div>• TP1: {s.reasons.tp1}</div>
+              <div>• TP2: {s.reasons.tp2}</div>
+            </div>
+            <div className="trader-actions">
+              <button className="btn sm red" disabled={busy} onClick={() => cancelSetup(s)}>
+                Закрыть по рынку
+              </button>
+            </div>
           </div>
-          <div className="trader-actions">
-            <button className="btn sm red" disabled={busy} onClick={() => cancelSetup(s)}>
-              {s.status === "OPEN" ? "Закрыть по рынку" : "Отменить сетап"}
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
 
       <h2>История</h2>
       {!history.length && <div className="card"><p className="muted">Истории пока нет.</p></div>}

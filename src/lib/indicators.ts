@@ -1,6 +1,8 @@
 // Технические индикаторы. Все функции возвращают массив той же длины,
 // что и вход; позиции без достаточной истории заполнены NaN.
 
+import type { Candle } from "./types";
+
 export function sma(values: number[], period: number): number[] {
   const out = new Array<number>(values.length).fill(NaN);
   let sum = 0;
@@ -46,6 +48,30 @@ export function rsi(closes: number[], period = 14): number[] {
     out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
   }
   return out;
+}
+
+// Последнее значение EMA (NaN, если истории не хватает)
+export function lastEma(values: number[], period: number): number {
+  const series = ema(values, period);
+  return series.length ? series[series.length - 1] : NaN;
+}
+
+// ATR по Уайлдеру: сглаживание с длинной памятью, а не среднее последних N.
+// Возвращает последнее значение (NaN, если истории не хватает).
+export function atrWilder(candles: Candle[], period = 14): number {
+  if (candles.length < period + 1) return NaN;
+  const tr = (i: number): number => {
+    const { high, low } = candles[i];
+    const pc = candles[i - 1].close;
+    return Math.max(high - low, Math.abs(high - pc), Math.abs(low - pc));
+  };
+  let v = 0;
+  for (let i = 1; i <= period; i++) v += tr(i);
+  v /= period;
+  for (let i = period + 1; i < candles.length; i++) {
+    v = (v * (period - 1) + tr(i)) / period;
+  }
+  return v;
 }
 
 // Гистограмма MACD (12/26/9)

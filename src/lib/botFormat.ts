@@ -1,5 +1,5 @@
-// Тексты телеграм-сообщений трейдер-бота: сигнал публикуется в момент,
-// когда цена уже у уровня, — вход по рынку сразу, дальше бот сопровождает позицию.
+// Тексты телеграм-сообщений кастомных ботов: сигнал публикуется в момент,
+// когда вход актуален, — вход по рынку сразу, дальше бот сопровождает позицию.
 // Цели и стоп подписаны деньгами: риск на сделку фиксирован, плечо и объём
 // рассчитаны так, чтобы стоп стоил ровно эту сумму вместе с комиссиями Bybit.
 
@@ -27,14 +27,14 @@ export function botSetupCaption(s: BotSetup): string {
   const p = s.plan;
   const money = (v: number | undefined) => (v === undefined ? "" : ` → ${fmtUsd(v)}`);
   return [
-    `🤖 СИГНАЛ ${dirBadge(s)} #${s.symbol} — ВХОД СЕЙЧАС`,
+    `🚀 ПРОБОЙ ${dirBadge(s)} #${s.symbol} — ВХОД СЕЙЧАС`,
     ``,
     `⚡ Вход по рынку: ${fmtPrice(s.entryPrice)} (текущая цена)`,
     `🛑 Стоп: ${fmtPrice(s.initialStop)}`
       + (p ? ` (${p.stopPct.toFixed(2)}% от входа)` : "") + money(p?.pnl.sl),
-    `🎯 TP1: ${fmtPrice(s.tp1)} (RR ${s.rr1})${money(p?.pnl.tp1)}`
+    `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)}`
       + ` — фикс 50% + стоп в безубыток`,
-    `🏁 TP2: ${fmtPrice(s.tp2)} (RR ${s.rr2})${money(p?.pnl.tp2)} суммарно`,
+    `🏁 TP2: ${fmtPrice(s.tp2)} (${s.rr2}R)${money(p?.pnl.tp2)} суммарно`,
     ...(p ? [``, ...planLines(p)] : []),
     ``,
     `Почему вход: ${s.reasons.entry}`,
@@ -42,32 +42,22 @@ export function botSetupCaption(s: BotSetup): string {
     `TP1: ${s.reasons.tp1}`,
     `TP2: ${s.reasons.tp2}`,
     ``,
-    `⚠️ Сигнал актуален в момент публикации: вход по рынку, стоп ставится сразу.`,
-  ].join("\n");
-}
-
-export function botFilledCaption(s: BotSetup): string {
-  return [
-    `⚡ ВХОД ${dirBadge(s)} #${s.symbol}`,
-    `Лимитка налита: ${fmtPrice(s.entryPrice)}`,
-    `🛑 Стоп: ${fmtPrice(s.stopPrice)}`,
-    `🎯 TP1: ${fmtPrice(s.tp1)} → 🏁 TP2: ${fmtPrice(s.tp2)}`,
-    ...(s.plan ? planLines(s.plan) : []),
+    `⚠️ Стратегия трендовая: большинство сделок — небольшие минусы, заработок `
+      + `приносят редкие длинные движения. Смысл есть только на дистанции.`,
   ].join("\n");
 }
 
 export function botTp1Caption(s: BotSetup): string {
   const p = s.plan;
-  const lines = [
+  return [
     `🎯 TP1 ДОСТИГНУТ ${dirBadge(s)} #${s.symbol}`,
-    `Зафиксировано 50% по ${fmtPrice(s.tp1)} (RR ${s.rr1})`
+    `Зафиксировано 50% по ${fmtPrice(s.tp1)} (${s.rr1}R)`
       + (p ? ` → ${fmtUsd(p.pnl.tp1)}` : ""),
     `Стоп перенесён в безубыток: ${fmtPrice(s.entryPrice)}`
       + (p ? ` — минимальный итог сделки теперь ${fmtUsd(p.pnl.be)}.` : "."),
     `Остаток едет к TP2 ${fmtPrice(s.tp2)}`
       + (p ? `: ещё ${fmtUsd(p.pnl.tp2 - p.pnl.tp1)} при исполнении.` : "."),
-  ];
-  return lines.join("\n");
+  ].join("\n");
 }
 
 export function botCloseCaption(s: BotSetup): string {
@@ -75,9 +65,9 @@ export function botCloseCaption(s: BotSetup): string {
     TP: `✅ TP2 ВЗЯТ`,
     SL: `⛔ СТОП`,
     BE: `🟨 БЕЗУБЫТОК`,
-    CANCELLED: `✖️ СЕТАП ОТМЕНЁН`,
-    EXPIRED: `⌛ СЕТАП ИСТЁК`,
-  }[s.status as "TP" | "SL" | "BE" | "CANCELLED" | "EXPIRED"] ?? `Закрыт`;
+    TIME: `⌛ ЗАКРЫТ ПО ВРЕМЕНИ`,
+    CANCELLED: `✖️ ЗАКРЫТ ВРУЧНУЮ`,
+  }[s.status as Exclude<BotSetup["status"], "OPEN">] ?? `Закрыт`;
   const lines = [`${head} ${dirBadge(s)} #${s.symbol}`];
   if (s.exitPrice !== null) {
     lines.push(`Вход: ${fmtPrice(s.entryPrice)} → Выход: ${fmtPrice(s.exitPrice)}`);

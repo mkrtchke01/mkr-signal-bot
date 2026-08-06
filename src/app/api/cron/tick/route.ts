@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runBotTick } from "@/lib/bot";
+import { tickAllBots } from "@/lib/botRegistry";
 import { runTick } from "@/lib/tick";
 
 export const dynamic = "force-dynamic";
@@ -16,14 +16,9 @@ export async function GET(req: NextRequest) {
   }
   try {
     const report = await runTick();
-    // Трейдер-бот не должен ломать конструктор (и наоборот)
-    let bot;
-    try {
-      bot = await runBotTick();
-    } catch (e) {
-      bot = { error: e instanceof Error ? e.message : String(e) };
-    }
-    return NextResponse.json({ ...report, bot });
+    // Кастомные боты не должны ломать конструктор (и наоборот)
+    const bots = await tickAllBots();
+    return NextResponse.json({ ...report, bots });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) }, { status: 500 },
