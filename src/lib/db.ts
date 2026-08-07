@@ -109,9 +109,12 @@ export function ensureSchema(): Promise<void> {
       // Несколько кастомных ботов живут в одной таблице, различаются по slug
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
         bot text NOT NULL DEFAULT 'breakout-trend'`;
-      // Сопровождение остатка трейлингом: шаг и лучшая достигнутая цена
+      // Сопровождение остатка трейлингом: точка включения, шаг, лучшая цена
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS trail_abs double precision`;
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS best_price double precision`;
+      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS activate_at double precision`;
+      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
+        trail_on boolean NOT NULL DEFAULT false`;
       // Фиксированной второй цели больше нет
       await sql`ALTER TABLE bot_setups ALTER COLUMN tp2 DROP NOT NULL`;
       await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_status ON bot_setups(status)`;
@@ -362,7 +365,9 @@ function rowToBotSetup(r: Row): BotSetup {
     initialStop: Number(r.initial_stop),
     tp1: Number(r.tp1),
     rr1: Number(r.rr1),
+    activateAt: Number(r.activate_at),
     trailAbs: Number(r.trail_abs),
+    trailOn: Boolean(r.trail_on),
     bestPrice: Number(r.best_price),
     reasons: j(r.reasons),
     regime: r.regime,
@@ -404,16 +409,17 @@ export async function getBotSetup(id: string): Promise<BotSetup | null> {
 export async function insertBotSetup(s: {
   bot: string; symbol: string; direction: Direction;
   entryPrice: number; stopPrice: number;
-  tp1: number; rr1: number; trailAbs: number;
+  tp1: number; rr1: number; activateAt: number; trailAbs: number;
   reasons: BotSetup["reasons"]; regime: string; plan: TradePlan;
 }): Promise<BotSetup> {
   const sql = await db();
   const rows = await sql`INSERT INTO bot_setups
     (bot, symbol, direction, status, entry_price, stop_price, initial_stop,
-     tp1, rr1, trail_abs, best_price, reasons, regime, plan, filled_at, last_checked_ms)
+     tp1, rr1, activate_at, trail_abs, best_price, reasons, regime, plan,
+     filled_at, last_checked_ms)
     VALUES (${s.bot}, ${s.symbol}, ${s.direction}, 'OPEN', ${s.entryPrice},
             ${s.stopPrice}, ${s.stopPrice},
-            ${s.tp1}, ${s.rr1}, ${s.trailAbs}, ${s.entryPrice},
+            ${s.tp1}, ${s.rr1}, ${s.activateAt}, ${s.trailAbs}, ${s.entryPrice},
             ${JSON.stringify(s.reasons)}::jsonb,
             ${s.regime}, ${JSON.stringify(s.plan)}::jsonb, now(), ${Date.now()})
     RETURNING *`;
@@ -425,17 +431,15 @@ export async function updateBotTrail(
   id: string, stopPrice: number, bestPrice: number,
 ): Promise<void> {
   const sql = await db();
-  await sql`UPDATE bot_setups SET stop_price = ${stopPrice}, best_price = ${bestPrice}
+  await sql`UPDATE bot_setups SET stop_price = ${stopPrice}, best_price = ${bestPrice},
+      trail_on = true
     WHERE id = ${id} AND status = 'OPEN'`;
 }
 
-// TP1 достигнут: половина зафиксирована, дальше остаток ведёт трейлинг
-export async function markBotTp1(
-  id: string, stopPrice: number, bestPrice: number,
-): Promise<void> {
+// TP1 достигнут: половина зафиксирована. Стоп остаётся на месте до активации трейлинга
+export async function markBotTp1(id: string): Promise<void> {
   const sql = await db();
-  await sql`UPDATE bot_setups SET tp1_done = true,
-      stop_price = ${stopPrice}, best_price = ${bestPrice}
+  await sql`UPDATE bot_setups SET tp1_done = true
     WHERE id = ${id} AND status = 'OPEN'`;
 }
 
@@ -477,6 +481,7 @@ export async function botStats(bot: string): Promise<BotStats> {
       count(*)::int AS total,
       count(*) FILTER (WHERE status = 'OPEN')::int AS open,
       count(*) FILTER (WHERE status = 'TRAIL')::int AS trail,
+      count(*) FILTER (WHERE status = 'PART')::int AS part,
       count(*) FILTER (WHERE status = 'SL')::int AS sl,
       count(*) FILTER (WHERE status = 'TIME')::int AS "time",
       count(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled,
@@ -486,7 +491,7 @@ export async function botStats(bot: string): Promise<BotStats> {
     FROM bot_setups WHERE bot = ${bot}`;
   const r = rows[0];
   return {
-    total: r.total, open: r.open, trail: r.trail, sl: r.sl,
+    total: r.total, open: r.open, trail: r.trail, part: r.part, sl: r.sl,
     time: r.time, cancelled: r.cancelled, tp1Reached: r.tp1_reached,
     profitPct: r.profit,
     profitUsd: Math.round(r.profit_usd * 100) / 100,

@@ -27,12 +27,14 @@ interface BotData {
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "в позиции",
   TRAIL: "снял трейлинг",
+  PART: "плюс по TP1",
   SL: "стоп",
   TIME: "по времени",
   CANCELLED: "закрыт вручную",
 };
 const STATUS_BADGE: Record<string, string> = {
-  OPEN: "running", TRAIL: "tp", SL: "sl", TIME: "time", CANCELLED: "paused",
+  OPEN: "running", TRAIL: "tp", PART: "tp", SL: "sl",
+  TIME: "time", CANCELLED: "paused",
 };
 
 function fmtTime(iso: string | null): string {
@@ -196,6 +198,7 @@ export default function BotDashboard({
           <div className="stat"><div className="v">{stats.total}</div><div className="l">сделок всего</div></div>
           <div className="stat"><div className="v">{stats.tp1Reached}</div><div className="l">дошли до TP1</div></div>
           <div className="stat"><div className="v pos">{stats.trail}</div><div className="l">снял трейлинг</div></div>
+          <div className="stat"><div className="v pos">{stats.part}</div><div className="l">плюс по TP1</div></div>
           <div className="stat"><div className="v neg">{stats.sl}</div><div className="l">стоп до TP1</div></div>
           <div className="stat"><div className="v">{stats.time}</div><div className="l">по времени</div></div>
           <div className="stat"><div className="v">{stats.cancelled}</div><div className="l">вручную</div></div>
@@ -235,10 +238,9 @@ export default function BotDashboard({
               <span className="sym">#{s.symbol}</span>
               <span className={`badge ${s.direction.toLowerCase()}`}>{s.direction}</span>
               <span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
-              {s.tp1Done && (
-                <span className="badge tp">
-                  TP1 взят, трейлинг ведёт от {fmtPrice(s.bestPrice)}
-                </span>
+              {s.tp1Done && <span className="badge tp">TP1 взят — сделка в плюсе</span>}
+              {s.trailOn && (
+                <span className="badge tp">трейлинг ведёт от {fmtPrice(s.bestPrice)}</span>
               )}
               <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
                 {fmtTime(s.createdAt)} · осталось {leftDays.toFixed(1)} дн
@@ -249,8 +251,8 @@ export default function BotDashboard({
               <div className="stat">
                 <div className={`v ${s.tp1Done ? "pos" : "neg"}`}>{fmtPrice(s.stopPrice)}</div>
                 <div className="l">
-                  стоп{s.tp1Done ? " (трейл)" : ""}
-                  {s.plan && !s.tp1Done && ` · ${fmtUsd(s.plan.pnl.sl)}`}
+                  стоп{s.trailOn ? " (трейл)" : ""}
+                  {s.plan && ` · ${fmtUsd(s.tp1Done ? s.plan.pnl.part : s.plan.pnl.sl)}`}
                 </div>
               </div>
               <div className="stat">
@@ -260,8 +262,10 @@ export default function BotDashboard({
                 </div>
               </div>
               <div className="stat">
-                <div className="v">{fmtPrice(s.trailAbs)}</div>
-                <div className="l">шаг трейлинга</div>
+                <div className={`v ${s.trailOn ? "pos" : ""}`}>{fmtPrice(s.activateAt)}</div>
+                <div className="l">
+                  трейлинг {s.trailOn ? "включён" : "с этой цены"} · шаг {fmtPrice(s.trailAbs)}
+                </div>
               </div>
             </div>
             {s.plan && (
@@ -291,12 +295,13 @@ export default function BotDashboard({
                 <li>
                   «Скользящий стоп-ордер» → «+ Добавить»: коррекция{" "}
                   <b>{fmtPrice(s.trailAbs)}</b> (режим «По сумме»), цена активации{" "}
-                  <b>{fmtPrice(s.tp1)}</b>
+                  <b>{fmtPrice(s.activateAt)}</b>
                 </li>
               </ol>
               <p className="hint" style={{ margin: "6px 0 0" }}>
-                До TP1 держит стоп-лосс. После TP1 половина зафиксирована, а остаток
-                биржа ведёт трейлингом сама — вмешиваться не нужно.
+                Половина фиксируется на {fmtPrice(s.tp1)} — после этого сделка в плюсе
+                при любом исходе. Если цена дойдёт до {fmtPrice(s.activateAt)}, остаток
+                подхватит трейлинг и биржа доведёт его сама.
               </p>
             </div>
             <div className="hint">

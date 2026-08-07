@@ -78,37 +78,48 @@ async function monitorSetup(
   const candles = await fetchKlines(s.symbol, "1m", { startTime: since - 60_000, limit: 1000 });
 
   let tp1Done = s.tp1Done;
+  let trailOn = s.trailOn;
   let stop = s.stopPrice;
   let best = s.bestPrice;
   let moved = false;
 
   for (const c of candles) {
-    // консервативно: сначала стоп, потом цель
+    // консервативно: сначала стоп, потом цели
     const hitStop = isLong ? c.low <= stop : c.high >= stop;
     if (hitStop) {
-      const st = tp1Done ? "TRAIL" : "SL";
-      await closeBotSetup(s.id, st, tp1Done
-        ? "Трейлинг снял прибыль: движение выдохлось."
-        : "Пробой оказался ложным — цена вернулась в диапазон.",
-      result(stop, tp1Done));
+      const st = trailOn ? "TRAIL" : tp1Done ? "PART" : "SL";
+      const reason = {
+        TRAIL: "Трейлинг снял прибыль: движение выдохлось.",
+        PART: "Остаток выбит стопом, но половина зафиксирована на TP1 — сделка в плюсе.",
+        SL: "Пробой оказался ложным — цена вернулась в диапазон.",
+      }[st];
+      await closeBotSetup(s.id, st, reason, result(stop, tp1Done));
       await broadcastClose(s.id, report);
       report.closed.push({ symbol: s.symbol, status: st });
       return;
     }
 
+    // фиксация половины: стоп на остаток пока не двигаем
     if (!tp1Done) {
       const hitT1 = isLong ? c.high >= s.tp1 : c.low <= s.tp1;
       if (hitT1) {
         tp1Done = true;
-        best = isLong ? c.high : c.low;
-        stop = isLong ? best - s.trailAbs : best + s.trailAbs;
-        await markBotTp1(s.id, stop, best);
+        await markBotTp1(s.id);
         report.errors.push(...await broadcastText(botTp1Caption(s)));
       }
     }
 
-    // после TP1 остаток ведёт трейлинг: стоп идёт за ценой и не отходит назад
-    if (tp1Done) {
+    // отдельная точка включения трейлинга
+    if (!trailOn) {
+      const on = isLong ? c.high >= s.activateAt : c.low <= s.activateAt;
+      if (on) {
+        trailOn = true;
+        best = isLong ? c.high : c.low;
+      }
+    }
+
+    // трейлинг ведёт остаток: стоп идёт за ценой и не отходит назад
+    if (trailOn) {
       best = isLong ? Math.max(best, c.high) : Math.min(best, c.low);
       const trail = isLong ? best - s.trailAbs : best + s.trailAbs;
       const next = isLong ? Math.max(stop, trail) : Math.min(stop, trail);
@@ -169,7 +180,8 @@ export async function runBotTick(
 // Публикация сетапа: считает денежный план и рассылает сигнал в каналы.
 export async function publishSetup(s: {
   bot: string; symbol: string; direction: BotSetup["direction"];
-  entry: number; stop: number; tp1: number; rr1: number; trailAbs: number;
+  entry: number; stop: number; tp1: number; rr1: number;
+  activateAt: number; trailAbs: number;
   reasons: BotSetup["reasons"]; regime: string;
 }, report: BotTickReport, caption: (x: BotSetup) => string): Promise<boolean> {
   const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1);
@@ -180,7 +192,7 @@ export async function publishSetup(s: {
   const setup = await insertBotSetup({
     bot: s.bot, symbol: s.symbol, direction: s.direction,
     entryPrice: s.entry, stopPrice: s.stop,
-    tp1: s.tp1, rr1: s.rr1, trailAbs: s.trailAbs,
+    tp1: s.tp1, rr1: s.rr1, activateAt: s.activateAt, trailAbs: s.trailAbs,
     reasons: s.reasons, regime: s.regime, plan,
   });
   report.newSetups.push(s.symbol);

@@ -107,11 +107,12 @@ export interface Signal {
 // TP/SL/BE — закрыт по тейку/стопу/безубытку; CANCELLED — отменён (вручную).
 // Легаси старой лимиточной версии: PENDING — ждал налива лимитки,
 // EXPIRED — лимитка не налилась за TTL.
-// OPEN — в позиции; SL — стоп до TP1; TRAIL — остаток снят трейлингом после TP1;
-// TIME — не сработало за лимит удержания, вышли по рынку;
+// OPEN — в позиции; SL — стоп, до TP1 не дошли (−1R);
+// PART — TP1 взят, остаток выбит стопом: итог всё равно в плюсе;
+// TRAIL — остаток снят трейлингом; TIME — вышли по лимиту удержания;
 // CANCELLED — закрыт вручную.
 export type BotSetupStatus =
-  | "OPEN" | "SL" | "TRAIL" | "TIME" | "CANCELLED";
+  | "OPEN" | "SL" | "PART" | "TRAIL" | "TIME" | "CANCELLED";
 
 // Денежный план сделки: фиксированный риск в $, безопасное плечо, комиссии Bybit.
 // Считается один раз в момент сигнала и хранится вместе с сетапом — чтобы итог
@@ -128,9 +129,9 @@ export interface TradePlan {
   stopPct: number;   // дистанция до стопа, % от входа
   liqPct: number;    // дистанция до ликвидации, % от входа
   pnl: {
-    tp1: number; // фиксация 50% на TP1
-    be: number;  // TP1 взят, остаток вышел по цене входа — худший исход после TP1
-    sl: number;  // стоп без TP1 (= −riskUsd)
+    tp1: number;  // фиксация 50% на TP1
+    part: number; // TP1 взят, остаток выбит стопом — худший исход после TP1
+    sl: number;   // стоп без TP1 (= −riskUsd)
   };
 }
 
@@ -143,9 +144,11 @@ export interface BotSetup {
   entryPrice: number;
   stopPrice: number;   // текущий стоп: до TP1 — начальный, после — подтянутый трейлом
   initialStop: number;
-  tp1: number;         // цель частичной фиксации, она же цена активации трейлинга
+  tp1: number;         // цель частичной фиксации 50%
   rr1: number;         // TP1 в единицах риска
+  activateAt: number;  // цена включения трейлинга («Цена активации» на Bybit)
   trailAbs: number;    // шаг трейлинга в цене («Коррекция» на Bybit)
+  trailOn: boolean;    // трейлинг уже активирован
   bestPrice: number;   // лучшая цена с момента активации трейлинга
   reasons: { entry: string; stop: string; tp1: string; trail: string };
   regime: string;
@@ -164,8 +167,9 @@ export interface BotSetup {
 export interface BotStats {
   total: number;
   open: number;
-  trail: number;     // остаток снят трейлингом после TP1
-  sl: number;        // стоп до TP1
+  trail: number;     // остаток снят трейлингом
+  part: number;      // TP1 взят, остаток по стопу — итог в плюсе
+  sl: number;        // стоп, до TP1 не дошли
   time: number;      // закрыто по лимиту удержания
   cancelled: number; // закрыто вручную
   tp1Reached: number;

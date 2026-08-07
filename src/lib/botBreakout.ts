@@ -69,7 +69,8 @@ export async function scanBreakout(
     if (published >= slots) break;
     const ok = await publishSetup({
       bot: slug, symbol: c.symbol, direction: c.direction,
-      entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R, trailAbs: c.trailAbs,
+      entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R,
+      activateAt: c.activateAt, trailAbs: c.trailAbs,
       reasons: c.reasons, regime: regime.note,
     }, report, botSetupCaption);
     if (ok) published++;

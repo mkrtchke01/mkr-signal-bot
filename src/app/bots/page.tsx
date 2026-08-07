@@ -83,6 +83,7 @@ export default function BotsPage() {
                 <span className="chip">💼 {closed} сделок</span>
                 <span className="chip">🎯 {s.tp1Reached} дошли до TP1</span>
                 <span className="chip">✅ {s.trail} снял трейлинг</span>
+                <span className="chip">🟩 {s.part} плюс по TP1</span>
                 <span className="chip">⛔ {s.sl} по стопу</span>
                 <span className="chip">⌛ {s.time} по времени</span>
                 <span className="chip">🔄 {s.open} активных</span>
