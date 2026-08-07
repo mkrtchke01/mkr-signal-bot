@@ -58,10 +58,8 @@ export async function POST(req: NextRequest) {
 
     if (body.action === "config") {
       const maxActive = Math.max(1, Math.min(10, Number(body.maxActive ?? cfg.maxActive)));
-      const maxPerDirection = Math.max(1, Math.min(maxActive,
-        Number(body.maxPerDirection ?? cfg.maxPerDirection)));
       const scanMinutes = Math.max(5, Math.min(240, Number(body.scanMinutes ?? cfg.scanMinutes)));
-      await saveBotConfig(slug, { ...cfg, maxActive, maxPerDirection, scanMinutes });
+      await saveBotConfig(slug, { ...cfg, maxActive, scanMinutes });
       return NextResponse.json({ ok: true });
     }
 

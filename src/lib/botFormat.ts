@@ -104,7 +104,6 @@ export function botCloseCaption(s: BotSetup): string {
     TRAIL: `✅ ТРЕЙЛИНГ ЗАКРЫЛ ОСТАТОК`,
     PART: `🟩 ПЛЮС ПО ЧАСТИЧНОЙ ФИКСАЦИИ`,
     SL: `⛔ СТОП`,
-    EARLY: `🚪 ПОРА ВЫХОДИТЬ: ИДЕЯ НЕ ПОШЛА`,
     TIME: `⌛ ПОРА ВЫХОДИТЬ ПО ВРЕМЕНИ`,
     CANCELLED: `✖️ ЗАКРЫТ ВРУЧНУЮ`,
   }[s.status as Exclude<BotSetup["status"], "OPEN">] ?? `Закрыт`;
@@ -118,9 +117,9 @@ export function botCloseCaption(s: BotSetup): string {
     lines.push(`Движение цены: ${fmtPct(s.profitPct)}`);
   }
   if (s.closeReason) lines.push(s.closeReason);
-  // Стоп и трейлинг срабатывают на бирже сами, а выходы по времени — нет
-  if (s.status === "TIME" || s.status === "EARLY") {
-    lines.push(`❗ Закрой позицию по рынку руками и сними скользящий стоп-ордер.`);
+  // Стоп и трейлинг срабатывают на бирже сами, а выход по времени — нет
+  if (s.status === "TIME") {
+    lines.push(`❗ Закрой остаток по рынку руками и сними скользящий стоп-ордер.`);
   }
   return lines.join("\n");
 }

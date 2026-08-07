@@ -109,10 +109,10 @@ export interface Signal {
 // EXPIRED — лимитка не налилась за TTL.
 // OPEN — в позиции; SL — стоп, до TP1 не дошли (−1R);
 // PART — TP1 взят, остаток выбит стопом: итог всё равно в плюсе;
-// TRAIL — остаток снят трейлингом; EARLY — идея не пошла за отведённый срок;
-// TIME — вышли по общему лимиту удержания; CANCELLED — закрыт вручную.
+// TRAIL — остаток снят трейлингом; TIME — вышли по лимиту удержания;
+// CANCELLED — закрыт вручную.
 export type BotSetupStatus =
-  | "OPEN" | "SL" | "PART" | "TRAIL" | "EARLY" | "TIME" | "CANCELLED";
+  | "OPEN" | "SL" | "PART" | "TRAIL" | "TIME" | "CANCELLED";
 
 // Денежный план сделки: фиксированный риск в $, безопасное плечо, комиссии Bybit.
 // Считается один раз в момент сигнала и хранится вместе с сетапом — чтобы итог
@@ -170,8 +170,7 @@ export interface BotStats {
   trail: number;     // остаток снят трейлингом
   part: number;      // TP1 взят, остаток по стопу — итог в плюсе
   sl: number;        // стоп, до TP1 не дошли
-  early: number;     // закрыто досрочно: идея не пошла
-  time: number;      // закрыто по общему лимиту удержания
+  time: number;      // закрыто по лимиту удержания
   cancelled: number; // закрыто вручную
   tp1Reached: number;
   profitPct: number;

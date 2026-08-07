@@ -32,14 +32,7 @@ export const STOP_ATR = 2.5;        // стоп в ATR от входа
 export const TP1_R = 1.5;           // фикс 50% позиции
 export const TRAIL_ACTIVATE_R = 5;  // с этого уровня включается трейлинг
 export const TRAIL_ATR = 3;         // шаг трейлинга в ATR
-export const MAX_HOLD_HOURS = 30 * 24;        // общий предел жизни сделки
-// Пробой, не прошедший 1R за 5 дней, уже неудачный: держать его — значит
-// занимать слот и платить фандинг за идею, которая не работает.
-export const EARLY_EXIT_HOURS = 5 * 24;
-export const EARLY_EXIT_R = 1;
-// Три однонаправленные позиции по альтам — это одна ставка тройным размером,
-// потому что альты ходят вместе. Больше двух в одну сторону не набираем.
-export const MAX_PER_DIRECTION = 2;
+export const MAX_HOLD_HOURS = 30 * 24;        // дальше выходим по рынку
 export const CONFIRM_MIN_MS = 3_600_000;      // ждём час после закрытия свечи
 export const CONFIRM_MAX_MS = 3 * 3_600_000;  // позже 3 часов не входим — поздно
 

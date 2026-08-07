@@ -9,9 +9,7 @@ import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { BotSetup, BotStats } from "@/lib/types";
 
 interface BotConfig {
-  enabled: boolean; maxActive: number; maxPerDirection: number;
-  scanMinutes: number; maxHoldHours: number;
-  earlyExitHours: number; earlyExitR: number;
+  enabled: boolean; maxActive: number; scanMinutes: number; maxHoldHours: number;
 }
 interface Regime {
   bias: "LONG" | "SHORT" | "NEUTRAL";
@@ -31,13 +29,12 @@ const STATUS_LABEL: Record<string, string> = {
   TRAIL: "снял трейлинг",
   PART: "плюс по TP1",
   SL: "стоп",
-  EARLY: "идея не пошла",
   TIME: "по времени",
   CANCELLED: "закрыт вручную",
 };
 const STATUS_BADGE: Record<string, string> = {
   OPEN: "running", TRAIL: "tp", PART: "tp", SL: "sl",
-  EARLY: "time", TIME: "time", CANCELLED: "paused",
+  TIME: "time", CANCELLED: "paused",
 };
 
 function fmtTime(iso: string | null): string {
@@ -200,18 +197,7 @@ export default function BotDashboard({
               style={{ width: 70 }}
               onChange={(e) => post({ action: "config", maxActive: Number(e.target.value) })}
             >
-              {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
-            из них в одну сторону
-            <select
-              value={config.maxPerDirection}
-              disabled={busy}
-              style={{ width: 70 }}
-              onChange={(e) => post({ action: "config", maxPerDirection: Number(e.target.value) })}
-            >
-              {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
@@ -237,7 +223,6 @@ export default function BotDashboard({
           <div className="stat"><div className="v pos">{stats.trail}</div><div className="l">снял трейлинг</div></div>
           <div className="stat"><div className="v pos">{stats.part}</div><div className="l">плюс по TP1</div></div>
           <div className="stat"><div className="v neg">{stats.sl}</div><div className="l">стоп до TP1</div></div>
-          <div className="stat"><div className="v">{stats.early}</div><div className="l">идея не пошла</div></div>
           <div className="stat"><div className="v">{stats.time}</div><div className="l">по времени</div></div>
           <div className="stat"><div className="v">{stats.cancelled}</div><div className="l">вручную</div></div>
           <div className="stat">
@@ -270,10 +255,6 @@ export default function BotDashboard({
       {active.map((s) => {
         const ageH = (Date.now() - new Date(s.createdAt).getTime()) / 3_600_000;
         const leftDays = Math.max(0, (config.maxHoldHours - ageH) / 24);
-        // сколько осталось до проверки «пошла ли идея»
-        const checkH = config.earlyExitHours - ageH;
-        const risk = Math.abs(s.entryPrice - s.initialStop);
-        const mfeR = risk > 0 ? Math.abs(s.bestPrice - s.entryPrice) / risk : 0;
         return (
           <div className="card trader-card" key={s.id}>
             <div className="trader-head">
@@ -283,11 +264,6 @@ export default function BotDashboard({
               {s.tp1Done && <span className="badge tp">TP1 взят — сделка в плюсе</span>}
               {s.trailOn && (
                 <span className="badge tp">трейлинг ведёт от {fmtPrice(s.bestPrice)}</span>
-              )}
-              {!s.tp1Done && checkH > 0 && (
-                <span className="badge time">
-                  прошла {mfeR.toFixed(2)}R, проверка через {(checkH / 24).toFixed(1)} дн
-                </span>
               )}
               <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
                 {fmtTime(s.createdAt)} · осталось {leftDays.toFixed(1)} дн
