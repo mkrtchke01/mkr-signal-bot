@@ -79,6 +79,26 @@ export function botTp1Caption(s: BotSetup): string {
   ].join("\n");
 }
 
+// Сетап вернули в работу: позиция на бирже жива, меняются только уровни
+export function botRearmCaption(s: BotSetup): string {
+  return [
+    `♻️ ОБНОВЛЁННЫЕ НАСТРОЙКИ ${dirBadge(s)} #${s.symbol}`,
+    ``,
+    `Позиция открыта и остаётся в работе — бот ошибочно закрыл её у себя `
+      + `и вернул в отслеживание. Вход ${fmtPrice(s.entryPrice)} и стоп `
+      + `${fmtPrice(s.initialStop)} прежние, под них уже посчитан объём.`,
+    ``,
+    `Обнови на бирже только цели:`,
+    `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма (${s.rr1}R)`,
+    `   • Скользящий стоп: коррекция ${fmtPrice(s.trailAbs)}, `
+      + `цена активации ${fmtPrice(s.activateAt)}`,
+    `   • Стоп-лосс ${fmtPrice(s.initialStop)} оставь как есть`,
+    ``,
+    `Если старый скользящий стоп-ордер уже стоит — удали его и добавь заново `
+      + `с новой ценой активации.`,
+  ].join("\n");
+}
+
 export function botCloseCaption(s: BotSetup): string {
   const head = {
     TRAIL: `✅ ТРЕЙЛИНГ ЗАКРЫЛ ОСТАТОК`,

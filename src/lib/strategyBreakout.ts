@@ -49,6 +49,25 @@ export interface BreakoutCandidate {
   reasons: { entry: string; stop: string; tp1: string; trail: string };
 }
 
+/**
+ * Уровни сопровождения по уже открытой позиции — от входа и исходного стопа.
+ * ATR отдельно не нужен: стоп равен STOP_ATR×ATR, поэтому шаг трейлинга
+ * выражается через тот же риск. Стоп не трогаем — под него посчитан объём.
+ */
+export function levelsFromStop(direction: Direction, entry: number, initialStop: number): {
+  tp1: number; activateAt: number; trailAbs: number;
+} | null {
+  const risk = Math.abs(entry - initialStop);
+  if (!(entry > 0) || !(risk > 0)) return null;
+  const isLong = direction === "LONG";
+  const at = (r: number) => (isLong ? entry + r * risk : entry - r * risk);
+  return {
+    tp1: at(TP1_R),
+    activateAt: at(TRAIL_ACTIVATE_R),
+    trailAbs: (TRAIL_ATR / STOP_ATR) * risk,
+  };
+}
+
 function fmt(p: number): string {
   if (p >= 1000) return p.toLocaleString("en-US", { maximumFractionDigits: 1 });
   if (p >= 1) return p.toLocaleString("en-US", { maximumFractionDigits: 4 });

@@ -443,6 +443,29 @@ export async function insertBotSetup(s: {
   return rowToBotSetup(rows[0]);
 }
 
+// Возврат ошибочно закрытого сетапа в работу: позиция на бирже жива, а бот
+// закрыл только свою запись. Стоп и объём остаются прежними — под них посчитан
+// риск; пересчитываются только цели и параметры трейлинга.
+export async function reopenBotSetup(id: string, s: {
+  tp1: number; rr1: number; activateAt: number; trailAbs: number;
+  reasons: BotSetup["reasons"]; plan: TradePlan;
+}): Promise<BotSetup | null> {
+  const sql = await db();
+  const rows = await sql`UPDATE bot_setups SET
+      status = 'OPEN', stop_price = initial_stop,
+      tp1 = ${s.tp1}, rr1 = ${s.rr1},
+      activate_at = ${s.activateAt}, trail_abs = ${s.trailAbs},
+      trail_on = false, tp1_done = false, best_price = entry_price,
+      exit_price = NULL, profit_pct = NULL, profit_usd = NULL,
+      closed_at = NULL, close_reason = NULL,
+      reasons = ${JSON.stringify(s.reasons)}::jsonb,
+      plan = ${JSON.stringify(s.plan)}::jsonb,
+      last_checked_ms = ${Date.now()}
+    WHERE id = ${id} AND status <> 'OPEN'
+    RETURNING *`;
+  return rows.length ? rowToBotSetup(rows[0]) : null;
+}
+
 // Трейлинг подтянул стоп за ценой — сохраняем новый стоп и лучшую цену
 export async function updateBotTrail(
   id: string, stopPrice: number, bestPrice: number,

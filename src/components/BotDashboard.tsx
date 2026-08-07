@@ -102,6 +102,29 @@ export default function BotDashboard({
     await post({ action: "reset", confirm: "RESET" }, "История очищена");
   }
 
+  // Позиция на бирже жива, а бот закрыл её у себя по ошибке — возвращаем в работу
+  async function reopenSetup(s: BotSetup) {
+    if (!confirm(
+      `Вернуть #${s.symbol} в работу? Записанный результат ${fmtUsd(s.profitUsd)} `
+      + `уберётся из статистики, цели пересчитаются по текущим правилам, `
+      + `а вход и стоп останутся прежними. Делай это, только если позиция `
+      + `реально открыта на бирже.`,
+    )) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const res = await fetch(`/api/bot/setups/${s.id}`, { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? `${res.status}`);
+      setNote(`#${s.symbol} возвращён в работу — новые настройки ушли в каналы`);
+      await load();
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function cancelSetup(s: BotSetup) {
     if (!confirm(
       `Точно закрыть позицию по рынку #${s.symbol}? В каналы уйдёт сообщение.`,
@@ -327,7 +350,8 @@ export default function BotDashboard({
             <thead>
               <tr>
                 <th>Монета</th><th>Напр.</th><th>Статус</th><th>Вход</th>
-                <th>Выход</th><th>Плечо</th><th>Итог, $</th><th>Движение</th><th>Закрыт</th>
+                <th>Выход</th><th>Плечо</th><th>Итог, $</th><th>Движение</th>
+                <th>Закрыт</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -346,6 +370,16 @@ export default function BotDashboard({
                     {fmtPct(s.profitPct)}
                   </td>
                   <td className="muted">{fmtTime(s.closedAt)}</td>
+                  <td>
+                    <button
+                      className="btn sm"
+                      disabled={busy}
+                      title="Позиция на бирже осталась открытой — вернуть сделку в работу"
+                      onClick={() => reopenSetup(s)}
+                    >
+                      ♻️
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
