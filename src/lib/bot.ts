@@ -10,7 +10,7 @@
 import { fetchKlines } from "./binance";
 import {
   activeBotSetups, closeBotSetup, getBotSetup, getBotState,
-  insertBotSetup, markBotTp1, setBotState, touchBotSetup, updateBotTrail,
+  insertBotSetup, markBotTp1, setBotState, touchBotSetup, updateBotProgress,
 } from "./db";
 import { botCloseCaption, botTp1Caption } from "./botFormat";
 import { broadcastText } from "./telegram";
@@ -20,9 +20,12 @@ import type { BotSetup } from "./types";
 export interface BotConfig {
   enabled: boolean;
   enabledAt: string | null; // когда бота запустили в последний раз (ISO)
-  maxActive: number;    // максимум одновременных позиций
-  scanMinutes: number;  // как часто искать новые сетапы
-  maxHoldHours: number; // дольше не держим — закрываем по рынку
+  maxActive: number;        // максимум одновременных позиций
+  maxPerDirection: number;  // из них — в одну сторону
+  scanMinutes: number;      // как часто искать новые сетапы
+  maxHoldHours: number;     // общий предел жизни сделки
+  earlyExitHours: number;   // через сколько проверяем, пошла ли идея
+  earlyExitR: number;       // сколько она должна была пройти к этому моменту
 }
 
 export interface BotTickReport {
@@ -103,6 +106,13 @@ async function monitorSetup(
       return;
     }
 
+    // лучшая достигнутая цена — нужна и трейлингу, и проверке «идея пошла?»
+    const better = isLong ? Math.max(best, c.high) : Math.min(best, c.low);
+    if (better !== best) {
+      best = better;
+      moved = true;
+    }
+
     // фиксация половины: стоп на остаток пока не двигаем
     if (!tp1Done) {
       const hitT1 = isLong ? c.high >= s.tp1 : c.low <= s.tp1;
@@ -116,15 +126,11 @@ async function monitorSetup(
     // отдельная точка включения трейлинга
     if (canTrail && !trailOn) {
       const on = isLong ? c.high >= s.activateAt : c.low <= s.activateAt;
-      if (on) {
-        trailOn = true;
-        best = isLong ? c.high : c.low;
-      }
+      if (on) trailOn = true;
     }
 
     // трейлинг ведёт остаток: стоп идёт за ценой и не отходит назад
     if (canTrail && trailOn) {
-      best = isLong ? Math.max(best, c.high) : Math.min(best, c.low);
       const trail = isLong ? best - s.trailAbs : best + s.trailAbs;
       const next = isLong ? Math.max(stop, trail) : Math.min(stop, trail);
       if (next !== stop) {
@@ -133,12 +139,28 @@ async function monitorSetup(
       }
     }
   }
-  if (moved) await updateBotTrail(s.id, stop, best);
+  if (moved) await updateBotProgress(s.id, stop, best, trailOn);
 
-  // Лимит удержания: идея не сработала ни в плюс, ни в минус — освобождаем слот
   const ageHours = (now - new Date(s.createdAt).getTime()) / 3_600_000;
-  if (ageHours >= cfg.maxHoldHours && candles.length) {
-    const exit = candles[candles.length - 1].close;
+  const exit = candles.length ? candles[candles.length - 1].close : null;
+
+  // Ранний выход: за отведённый срок цена не прошла даже earlyExitR — идея
+  // не работает, освобождаем слот. Бот не торгует сам, поэтому просит закрыть.
+  const risk = Math.abs(s.entryPrice - s.initialStop);
+  const mfeR = risk > 0 ? Math.abs(best - s.entryPrice) / risk : 0;
+  if (!tp1Done && exit !== null
+    && ageHours >= cfg.earlyExitHours && mfeR < cfg.earlyExitR) {
+    await closeBotSetup(s.id, "EARLY",
+      `За ${Math.round(ageHours / 24)} дн цена прошла лишь ${mfeR.toFixed(2)}R — `
+      + `пробой не состоялся, выходим по рынку.`,
+      result(exit, tp1Done));
+    await broadcastClose(s.id, report);
+    report.closed.push({ symbol: s.symbol, status: "EARLY" });
+    return;
+  }
+
+  // Общий лимит удержания: сделка живёт слишком долго — освобождаем слот
+  if (ageHours >= cfg.maxHoldHours && exit !== null) {
     await closeBotSetup(s.id, "TIME",
       `Прошло ${Math.round(ageHours / 24)} дн, цели не достигнуты — выходим по рынку.`,
       result(exit, tp1Done));

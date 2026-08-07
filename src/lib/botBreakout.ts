@@ -5,7 +5,10 @@ import { lastPrice } from "./binance";
 import { activeBotSetups, setBotState } from "./db";
 import { botSetupCaption } from "./botFormat";
 import { detectRegime } from "./regime";
-import { findBreakout, MAX_HOLD_HOURS, TP1_R } from "./strategyBreakout";
+import {
+  EARLY_EXIT_HOURS, EARLY_EXIT_R, findBreakout, MAX_HOLD_HOURS,
+  MAX_PER_DIRECTION, TP1_R,
+} from "./strategyBreakout";
 import { publishSetup } from "./bot";
 import { chunks, closedKlines, pickUniverse } from "./botScan";
 import type { BotConfig, BotTickReport } from "./bot";
@@ -17,11 +20,16 @@ export const BREAKOUT_SLUG = "breakout-trend";
 export const BREAKOUT_DEFAULTS: BotConfig = {
   enabled: false,
   enabledAt: null,
+  // Три слота при лимите 2 в одну сторону: на прогоне боевого кода это лучше
+  // и по итогу, и по просадке, чем четыре или пять
   maxActive: 3,
+  maxPerDirection: MAX_PER_DIRECTION,
   // Окно входа живёт 1–3 часа после закрытия 4h-свечи: сканировать надо часто,
   // иначе окно закроется до следующего скана.
   scanMinutes: 15,
   maxHoldHours: MAX_HOLD_HOURS,
+  earlyExitHours: EARLY_EXIT_HOURS,
+  earlyExitR: EARLY_EXIT_R,
 };
 
 // Повторный вход в ту же монету сразу после стопа обычно ошибка — сутки паузы
@@ -63,16 +71,25 @@ export async function scanBreakout(
     }));
   }
 
+  // Ограничение по направлению: три однонаправленные позиции по альтам — это
+  // одна ставка тройным размером, а не диверсификация.
+  const perDir: Record<string, number> = { LONG: 0, SHORT: 0 };
+  for (const p of active) perDir[p.direction]++;
+
   candidates.sort((a, b) => b.score - a.score);
   let published = 0;
   for (const c of candidates) {
     if (published >= slots) break;
+    if (perDir[c.direction] >= cfg.maxPerDirection) continue;
     const ok = await publishSetup({
       bot: slug, symbol: c.symbol, direction: c.direction,
       entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R,
       activateAt: c.activateAt, trailAbs: c.trailAbs,
       reasons: c.reasons, regime: regime.note,
     }, report, botSetupCaption);
-    if (ok) published++;
+    if (ok) {
+      published++;
+      perDir[c.direction]++;
+    }
   }
 }

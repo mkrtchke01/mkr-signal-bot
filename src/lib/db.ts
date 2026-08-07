@@ -466,13 +466,13 @@ export async function reopenBotSetup(id: string, s: {
   return rows.length ? rowToBotSetup(rows[0]) : null;
 }
 
-// Трейлинг подтянул стоп за ценой — сохраняем новый стоп и лучшую цену
-export async function updateBotTrail(
-  id: string, stopPrice: number, bestPrice: number,
+// Позиция продвинулась: обновились лучшая цена, стоп или состояние трейлинга
+export async function updateBotProgress(
+  id: string, stopPrice: number, bestPrice: number, trailOn: boolean,
 ): Promise<void> {
   const sql = await db();
   await sql`UPDATE bot_setups SET stop_price = ${stopPrice}, best_price = ${bestPrice},
-      trail_on = true
+      trail_on = ${trailOn}
     WHERE id = ${id} AND status = 'OPEN'`;
 }
 
@@ -523,6 +523,7 @@ export async function botStats(bot: string): Promise<BotStats> {
       count(*) FILTER (WHERE status = 'TRAIL')::int AS trail,
       count(*) FILTER (WHERE status = 'PART')::int AS part,
       count(*) FILTER (WHERE status = 'SL')::int AS sl,
+      count(*) FILTER (WHERE status = 'EARLY')::int AS early,
       count(*) FILTER (WHERE status = 'TIME')::int AS "time",
       count(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled,
       count(*) FILTER (WHERE tp1_done)::int AS tp1_reached,
@@ -532,7 +533,7 @@ export async function botStats(bot: string): Promise<BotStats> {
   const r = rows[0];
   return {
     total: r.total, open: r.open, trail: r.trail, part: r.part, sl: r.sl,
-    time: r.time, cancelled: r.cancelled, tp1Reached: r.tp1_reached,
+    early: r.early, time: r.time, cancelled: r.cancelled, tp1Reached: r.tp1_reached,
     profitPct: r.profit,
     profitUsd: Math.round(r.profit_usd * 100) / 100,
   };
