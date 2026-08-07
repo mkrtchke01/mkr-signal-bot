@@ -1,7 +1,5 @@
-// Тексты телеграм-сообщений кастомных ботов: сигнал публикуется в момент,
-// когда вход актуален, — вход по рынку сразу, дальше бот сопровождает позицию.
-// Цели и стоп подписаны деньгами: риск на сделку фиксирован, плечо и объём
-// рассчитаны так, чтобы стоп стоил ровно эту сумму вместе с комиссиями Bybit.
+// Тексты телеграм-сообщений бота. Сигнал содержит готовую инструкцию для Bybit:
+// всё выставляется один раз сразу после входа и дальше не трогается.
 
 import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "./format";
 import type { BotSetup, TradePlan } from "./types";
@@ -23,6 +21,24 @@ function planLines(p: TradePlan): string[] {
   ];
 }
 
+// Инструкция «поставил и забыл»: три экрана Bybit, дальше позиция ведёт себя сама
+export function bybitSetupLines(s: BotSetup): string[] {
+  return [
+    `⚙️ КАК ВЫСТАВИТЬ НА BYBIT (один раз, потом не трогаем)`,
+    ``,
+    `1) Вход по рынку${s.plan ? `, плечо ×${s.plan.leverage}, изолированная маржа` : ""}.`,
+    `2) В позиции открой «TP/SL» → режим «Частичная позиция»:`,
+    `   • Стоп-лосс: ${fmtPrice(s.initialStop)} — на весь объём`,
+    `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма`,
+    `3) Там же колонка «Скользящий стоп-ордер» → «+ Добавить»:`,
+    `   • Коррекция: ${fmtPrice(s.trailAbs)} (режим «По сумме»)`,
+    `   • Цена активации: ✅ ${fmtPrice(s.tp1)}`,
+    ``,
+    `Дальше ничего менять не надо: до TP1 держит стоп-лосс, после TP1 половина`,
+    `зафиксирована, а остаток ведёт трейлинг и сам закроется на откате.`,
+  ];
+}
+
 export function botSetupCaption(s: BotSetup): string {
   const p = s.plan;
   const money = (v: number | undefined) => (v === undefined ? "" : ` → ${fmtUsd(v)}`);
@@ -32,18 +48,19 @@ export function botSetupCaption(s: BotSetup): string {
     `⚡ Вход по рынку: ${fmtPrice(s.entryPrice)} (текущая цена)`,
     `🛑 Стоп: ${fmtPrice(s.initialStop)}`
       + (p ? ` (${p.stopPct.toFixed(2)}% от входа)` : "") + money(p?.pnl.sl),
-    `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)}`
-      + ` — фикс 50% + стоп в безубыток`,
-    `🏁 TP2: ${fmtPrice(s.tp2)} (${s.rr2}R)${money(p?.pnl.tp2)} суммарно`,
+    `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)} — фикс 50%`,
+    `📈 Остаток: трейлинг с шагом ${fmtPrice(s.trailAbs)}, включается на TP1`,
     ...(p ? [``, ...planLines(p)] : []),
+    ``,
+    ...bybitSetupLines(s),
     ``,
     `Почему вход: ${s.reasons.entry}`,
     `Почему стоп: ${s.reasons.stop}`,
     `TP1: ${s.reasons.tp1}`,
-    `TP2: ${s.reasons.tp2}`,
+    `Трейлинг: ${s.reasons.trail}`,
     ``,
-    `⚠️ Стратегия трендовая: большинство сделок — небольшие минусы, заработок `
-      + `приносят редкие длинные движения. Смысл есть только на дистанции.`,
+    `⚠️ Стратегия трендовая: две трети сделок — мелкие минусы по стопу, `
+      + `а весь заработок дают редкие длинные движения. Смысл есть только на дистанции.`,
   ].join("\n");
 }
 
@@ -53,19 +70,16 @@ export function botTp1Caption(s: BotSetup): string {
     `🎯 TP1 ДОСТИГНУТ ${dirBadge(s)} #${s.symbol}`,
     `Зафиксировано 50% по ${fmtPrice(s.tp1)} (${s.rr1}R)`
       + (p ? ` → ${fmtUsd(p.pnl.tp1)}` : ""),
-    `Стоп перенесён в безубыток: ${fmtPrice(s.entryPrice)}`
-      + (p ? ` — минимальный итог сделки теперь ${fmtUsd(p.pnl.be)}.` : "."),
-    `Остаток едет к TP2 ${fmtPrice(s.tp2)}`
-      + (p ? `: ещё ${fmtUsd(p.pnl.tp2 - p.pnl.tp1)} при исполнении.` : "."),
+    `Трейлинг включился и ведёт остаток с шагом ${fmtPrice(s.trailAbs)}.`,
+    `Делать ничего не нужно — биржа тянет стоп сама.`,
   ].join("\n");
 }
 
 export function botCloseCaption(s: BotSetup): string {
   const head = {
-    TP: `✅ TP2 ВЗЯТ`,
+    TRAIL: `✅ ТРЕЙЛИНГ ЗАКРЫЛ ОСТАТОК`,
     SL: `⛔ СТОП`,
-    BE: `🟨 БЕЗУБЫТОК`,
-    TIME: `⌛ ЗАКРЫТ ПО ВРЕМЕНИ`,
+    TIME: `⌛ ПОРА ВЫХОДИТЬ ПО ВРЕМЕНИ`,
     CANCELLED: `✖️ ЗАКРЫТ ВРУЧНУЮ`,
   }[s.status as Exclude<BotSetup["status"], "OPEN">] ?? `Закрыт`;
   const lines = [`${head} ${dirBadge(s)} #${s.symbol}`];
@@ -78,5 +92,9 @@ export function botCloseCaption(s: BotSetup): string {
     lines.push(`Движение цены: ${fmtPct(s.profitPct)}`);
   }
   if (s.closeReason) lines.push(s.closeReason);
+  // Стоп и трейлинг срабатывают на бирже сами, а выход по времени — нет
+  if (s.status === "TIME") {
+    lines.push(`❗ Закрой остаток по рынку руками и сними скользящий стоп-ордер.`);
+  }
   return lines.join("\n");
 }

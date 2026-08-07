@@ -109,6 +109,11 @@ export function ensureSchema(): Promise<void> {
       // Несколько кастомных ботов живут в одной таблице, различаются по slug
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
         bot text NOT NULL DEFAULT 'breakout-trend'`;
+      // Сопровождение остатка трейлингом: шаг и лучшая достигнутая цена
+      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS trail_abs double precision`;
+      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS best_price double precision`;
+      // Фиксированной второй цели больше нет
+      await sql`ALTER TABLE bot_setups ALTER COLUMN tp2 DROP NOT NULL`;
       await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_status ON bot_setups(status)`;
       await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_bot ON bot_setups(bot, created_at DESC)`;
       // Бот «Откат к уровням» удалён как убыточный — чистим его данные.
@@ -356,9 +361,9 @@ function rowToBotSetup(r: Row): BotSetup {
     stopPrice: Number(r.stop_price),
     initialStop: Number(r.initial_stop),
     tp1: Number(r.tp1),
-    tp2: Number(r.tp2),
     rr1: Number(r.rr1),
-    rr2: Number(r.rr2),
+    trailAbs: Number(r.trail_abs),
+    bestPrice: Number(r.best_price),
     reasons: j(r.reasons),
     regime: r.regime,
     plan: r.plan ? j<TradePlan>(r.plan) : null,
@@ -399,25 +404,38 @@ export async function getBotSetup(id: string): Promise<BotSetup | null> {
 export async function insertBotSetup(s: {
   bot: string; symbol: string; direction: Direction;
   entryPrice: number; stopPrice: number;
-  tp1: number; tp2: number; rr1: number; rr2: number;
+  tp1: number; rr1: number; trailAbs: number;
   reasons: BotSetup["reasons"]; regime: string; plan: TradePlan;
 }): Promise<BotSetup> {
   const sql = await db();
   const rows = await sql`INSERT INTO bot_setups
     (bot, symbol, direction, status, entry_price, stop_price, initial_stop,
-     tp1, tp2, rr1, rr2, reasons, regime, plan, filled_at, last_checked_ms)
+     tp1, rr1, trail_abs, best_price, reasons, regime, plan, filled_at, last_checked_ms)
     VALUES (${s.bot}, ${s.symbol}, ${s.direction}, 'OPEN', ${s.entryPrice},
             ${s.stopPrice}, ${s.stopPrice},
-            ${s.tp1}, ${s.tp2}, ${s.rr1}, ${s.rr2}, ${JSON.stringify(s.reasons)}::jsonb,
+            ${s.tp1}, ${s.rr1}, ${s.trailAbs}, ${s.entryPrice},
+            ${JSON.stringify(s.reasons)}::jsonb,
             ${s.regime}, ${JSON.stringify(s.plan)}::jsonb, now(), ${Date.now()})
     RETURNING *`;
   return rowToBotSetup(rows[0]);
 }
 
-// TP1 достигнут: фиксация 50%, стоп переносится в безубыток (на цену входа)
-export async function markBotTp1(id: string): Promise<void> {
+// Трейлинг подтянул стоп за ценой — сохраняем новый стоп и лучшую цену
+export async function updateBotTrail(
+  id: string, stopPrice: number, bestPrice: number,
+): Promise<void> {
   const sql = await db();
-  await sql`UPDATE bot_setups SET tp1_done = true, stop_price = entry_price
+  await sql`UPDATE bot_setups SET stop_price = ${stopPrice}, best_price = ${bestPrice}
+    WHERE id = ${id} AND status = 'OPEN'`;
+}
+
+// TP1 достигнут: половина зафиксирована, дальше остаток ведёт трейлинг
+export async function markBotTp1(
+  id: string, stopPrice: number, bestPrice: number,
+): Promise<void> {
+  const sql = await db();
+  await sql`UPDATE bot_setups SET tp1_done = true,
+      stop_price = ${stopPrice}, best_price = ${bestPrice}
     WHERE id = ${id} AND status = 'OPEN'`;
 }
 
@@ -458,18 +476,18 @@ export async function botStats(bot: string): Promise<BotStats> {
   const rows = await sql`SELECT
       count(*)::int AS total,
       count(*) FILTER (WHERE status = 'OPEN')::int AS open,
-      count(*) FILTER (WHERE status = 'TP')::int AS tp,
+      count(*) FILTER (WHERE status = 'TRAIL')::int AS trail,
       count(*) FILTER (WHERE status = 'SL')::int AS sl,
-      count(*) FILTER (WHERE status = 'BE')::int AS be,
       count(*) FILTER (WHERE status = 'TIME')::int AS "time",
       count(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled,
+      count(*) FILTER (WHERE tp1_done)::int AS tp1_reached,
       coalesce(sum(profit_pct), 0)::float8 AS profit,
       coalesce(sum(profit_usd), 0)::float8 AS profit_usd
     FROM bot_setups WHERE bot = ${bot}`;
   const r = rows[0];
   return {
-    total: r.total, open: r.open, tp: r.tp, sl: r.sl, be: r.be,
-    time: r.time, cancelled: r.cancelled,
+    total: r.total, open: r.open, trail: r.trail, sl: r.sl,
+    time: r.time, cancelled: r.cancelled, tp1Reached: r.tp1_reached,
     profitPct: r.profit,
     profitUsd: Math.round(r.profit_usd * 100) / 100,
   };

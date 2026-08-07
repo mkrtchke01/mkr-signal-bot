@@ -107,11 +107,11 @@ export interface Signal {
 // TP/SL/BE — закрыт по тейку/стопу/безубытку; CANCELLED — отменён (вручную).
 // Легаси старой лимиточной версии: PENDING — ждал налива лимитки,
 // EXPIRED — лимитка не налилась за TTL.
-// OPEN — в позиции (сигнал = вход по рынку); TP/SL/BE — закрыт по целям,
-// стопу или безубытку; TIME — не сработало за лимит удержания, вышли по рынку;
+// OPEN — в позиции; SL — стоп до TP1; TRAIL — остаток снят трейлингом после TP1;
+// TIME — не сработало за лимит удержания, вышли по рынку;
 // CANCELLED — закрыт вручную.
 export type BotSetupStatus =
-  | "OPEN" | "TP" | "SL" | "BE" | "TIME" | "CANCELLED";
+  | "OPEN" | "SL" | "TRAIL" | "TIME" | "CANCELLED";
 
 // Денежный план сделки: фиксированный риск в $, безопасное плечо, комиссии Bybit.
 // Считается один раз в момент сигнала и хранится вместе с сетапом — чтобы итог
@@ -129,8 +129,7 @@ export interface TradePlan {
   liqPct: number;    // дистанция до ликвидации, % от входа
   pnl: {
     tp1: number; // фиксация 50% на TP1
-    tp2: number; // итог сценария TP1 + TP2
-    be: number;  // итог сценария TP1 + остаток в безубытке
+    be: number;  // TP1 взят, остаток вышел по цене входа — худший исход после TP1
     sl: number;  // стоп без TP1 (= −riskUsd)
   };
 }
@@ -142,13 +141,13 @@ export interface BotSetup {
   direction: Direction;
   status: BotSetupStatus;
   entryPrice: number;
-  stopPrice: number;   // текущий стоп (после TP1 переносится в безубыток)
+  stopPrice: number;   // текущий стоп: до TP1 — начальный, после — подтянутый трейлом
   initialStop: number;
-  tp1: number;
-  tp2: number;
-  rr1: number;
-  rr2: number;
-  reasons: { entry: string; stop: string; tp1: string; tp2: string };
+  tp1: number;         // цель частичной фиксации, она же цена активации трейлинга
+  rr1: number;         // TP1 в единицах риска
+  trailAbs: number;    // шаг трейлинга в цене («Коррекция» на Bybit)
+  bestPrice: number;   // лучшая цена с момента активации трейлинга
+  reasons: { entry: string; stop: string; tp1: string; trail: string };
   regime: string;
   plan: TradePlan | null; // null только у сетапов, созданных до денежной модели
   tp1Done: boolean;
@@ -165,11 +164,11 @@ export interface BotSetup {
 export interface BotStats {
   total: number;
   open: number;
-  tp: number;
-  sl: number;
-  be: number;
+  trail: number;     // остаток снят трейлингом после TP1
+  sl: number;        // стоп до TP1
   time: number;      // закрыто по лимиту удержания
   cancelled: number; // закрыто вручную
+  tp1Reached: number;
   profitPct: number;
   profitUsd: number;
 }

@@ -10,14 +10,15 @@
 //     Ложные пробои за этот час часто откатываются — на тестах ожидание
 //     заметно улучшало результат.
 //  5. Стоп 2.5×ATR(14, 4h) от фактического входа.
-//  6. Цели широкие: TP1 на 3R (фиксируем половину, стоп в безубыток),
-//     TP2 на 6R. Узкие цели режут те самые редкие большие движения, ради
-//     которых стратегия и существует, — на тестах они стабильно хуже.
-//  7. Если за 30 дней не сработало ни то ни другое — выходим по рынку.
-//     Без этого лимита позиции занимают слоты месяцами и результат рушится.
+//  6. TP1 на 3R: фиксируем половину. С этого же уровня включается трейлинг
+//     на остаток с шагом 3×ATR — он и снимает прибыль, когда движение выдохнется.
+//     Фиксированной второй цели нет: она срезала бы редкие длинные движения,
+//     ради которых стратегия и существует.
+//  7. Если за 30 дней не сработало ничего — выходим по рынку. Без этого лимита
+//     позиции занимают слоты месяцами и результат рушится.
 //
-// Профиль: винрейт около 34%, медианная сделка отрицательная, весь результат
-// дают ~22% сделок, доходящих до целей.
+// В момент активации трейлинг стоит уже на 4.5×ATR выше входа (3R − 3×ATR),
+// то есть переносить стоп в безубыток отдельно не нужно — трейлинг заведомо выше.
 
 import { atrWilder, lastEma } from "./indicators";
 import type { Candle, Direction } from "./types";
@@ -25,8 +26,8 @@ import type { RegimeBias } from "./regime";
 
 export const BREAKOUT_PERIOD = 20;  // сколько 4h-закрытий должен пробить сигнал
 export const STOP_ATR = 2.5;        // стоп в ATR от входа
-export const TP1_R = 3;             // первая цель: фикс 50% + стоп в безубыток
-export const TP2_R = 6;             // вторая цель: закрытие остатка
+export const TP1_R = 3;             // фикс 50% и точка активации трейлинга
+export const TRAIL_ATR = 3;         // шаг трейлинга в ATR
 export const MAX_HOLD_HOURS = 30 * 24;        // дальше выходим по рынку
 export const CONFIRM_MIN_MS = 3_600_000;      // ждём час после закрытия свечи
 export const CONFIRM_MAX_MS = 3 * 3_600_000;  // позже 3 часов не входим — поздно
@@ -37,10 +38,10 @@ export interface BreakoutCandidate {
   entry: number;
   stop: number;
   tp1: number;
-  tp2: number;
+  trailAbs: number;
   atr: number;
   score: number;
-  reasons: { entry: string; stop: string; tp1: string; tp2: string };
+  reasons: { entry: string; stop: string; tp1: string; trail: string };
 }
 
 function fmt(p: number): string {
@@ -105,9 +106,8 @@ export function findBreakout(
   const stop = isLong ? entry - STOP_ATR * a : entry + STOP_ATR * a;
   const risk = Math.abs(entry - stop);
   if (risk <= 0) return null;
-  const at = (r: number) => (isLong ? entry + r * risk : entry - r * risk);
-  const tp1 = at(TP1_R);
-  const tp2 = at(TP2_R);
+  const tp1 = isLong ? entry + TP1_R * risk : entry - TP1_R * risk;
+  const trailAbs = TRAIL_ATR * a;
 
   const range = fmt(extremeClose(h4, i, BREAKOUT_PERIOD, isLong ? "max" : "min"));
   const word = isLong ? "выше" : "ниже";
@@ -118,12 +118,13 @@ export function findBreakout(
       + `Вход по рынку через час после пробоя — подтверждение, что откат не съел движение`,
     stop: `${STOP_ATR}×ATR(14, 4h) = ${fmt(STOP_ATR * a)} от входа — цена там означает, `
       + `что пробой был ложным`,
-    tp1: `${TP1_R}R = ${fmt(tp1)}: фиксируем половину и переносим стоп в безубыток`,
-    tp2: `${TP2_R}R = ${fmt(tp2)}: цели широкие намеренно — весь заработок стратегии `
-      + `дают редкие длинные движения, узкие тейки их срезают`,
+    tp1: `${TP1_R}R = ${fmt(tp1)}: фиксируем половину позиции`,
+    trail: `с уровня TP1 остаток ведёт трейлинг с шагом ${TRAIL_ATR}×ATR = ${fmt(trailAbs)}. `
+      + `Фиксированной второй цели нет намеренно: весь заработок стратегии дают редкие `
+      + `длинные движения, а тейк их срезает`,
   };
 
-  return { symbol, direction, entry, stop, tp1, tp2, atr: a,
+  return { symbol, direction, entry, stop, tp1, trailAbs, atr: a,
     // сила выноса относительно волатильности: чем дальше цена ушла от EMA50, тем выше приоритет
     score: Math.abs(last.close - ema50) / a,
     reasons };

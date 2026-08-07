@@ -38,7 +38,7 @@ export function pickLeverage(stopFrac: number): number {
 }
 
 export function buildPlan(
-  direction: Direction, entry: number, stop: number, tp1: number, tp2: number,
+  direction: Direction, entry: number, stop: number, tp1: number,
 ): TradePlan | null {
   const isLong = direction === "LONG";
   const risk = Math.abs(entry - stop);
@@ -68,7 +68,6 @@ export function buildPlan(
     liqPct: r2(liqFrac * 100),
     pnl: {
       tp1: r2(half1),
-      tp2: r2(half1 + legPnl(qty, 0.5, entry, tp2, isLong)),
       be: r2(half1 + legPnl(qty, 0.5, entry, entry, isLong)),
       sl: r2(legPnl(qty, 1, entry, stop, isLong)),
     },

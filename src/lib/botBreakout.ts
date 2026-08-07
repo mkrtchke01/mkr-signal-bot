@@ -5,7 +5,7 @@ import { lastPrice } from "./binance";
 import { activeBotSetups, setBotState } from "./db";
 import { botSetupCaption } from "./botFormat";
 import { detectRegime } from "./regime";
-import { findBreakout, MAX_HOLD_HOURS, TP1_R, TP2_R } from "./strategyBreakout";
+import { findBreakout, MAX_HOLD_HOURS, TP1_R } from "./strategyBreakout";
 import { publishSetup } from "./bot";
 import { chunks, closedKlines, pickUniverse } from "./botScan";
 import type { BotConfig, BotTickReport } from "./bot";
@@ -69,8 +69,7 @@ export async function scanBreakout(
     if (published >= slots) break;
     const ok = await publishSetup({
       bot: slug, symbol: c.symbol, direction: c.direction,
-      entry: c.entry, stop: c.stop, tp1: c.tp1, tp2: c.tp2,
-      rr1: TP1_R, rr2: TP2_R,
+      entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R, trailAbs: c.trailAbs,
       reasons: c.reasons, regime: regime.note,
     }, report, botSetupCaption);
     if (ok) published++;

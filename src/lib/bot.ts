@@ -10,7 +10,7 @@
 import { fetchKlines } from "./binance";
 import {
   activeBotSetups, closeBotSetup, getBotSetup, getBotState,
-  insertBotSetup, markBotTp1, setBotState, touchBotSetup,
+  insertBotSetup, markBotTp1, setBotState, touchBotSetup, updateBotTrail,
 } from "./db";
 import { botCloseCaption, botTp1Caption } from "./botFormat";
 import { broadcastText } from "./telegram";
@@ -79,39 +79,46 @@ async function monitorSetup(
 
   let tp1Done = s.tp1Done;
   let stop = s.stopPrice;
+  let best = s.bestPrice;
+  let moved = false;
 
   for (const c of candles) {
-    // консервативно: сначала стоп, потом цели
+    // консервативно: сначала стоп, потом цель
     const hitStop = isLong ? c.low <= stop : c.high >= stop;
     if (hitStop) {
-      const st = tp1Done ? "BE" : "SL";
+      const st = tp1Done ? "TRAIL" : "SL";
       await closeBotSetup(s.id, st, tp1Done
-        ? "Остаток закрыт в безубытке — половина профита с TP1 сохранена."
+        ? "Трейлинг снял прибыль: движение выдохлось."
         : "Пробой оказался ложным — цена вернулась в диапазон.",
       result(stop, tp1Done));
       await broadcastClose(s.id, report);
       report.closed.push({ symbol: s.symbol, status: st });
       return;
     }
+
     if (!tp1Done) {
       const hitT1 = isLong ? c.high >= s.tp1 : c.low <= s.tp1;
       if (hitT1) {
         tp1Done = true;
-        stop = s.entryPrice;
-        await markBotTp1(s.id);
+        best = isLong ? c.high : c.low;
+        stop = isLong ? best - s.trailAbs : best + s.trailAbs;
+        await markBotTp1(s.id, stop, best);
         report.errors.push(...await broadcastText(botTp1Caption(s)));
       }
     }
+
+    // после TP1 остаток ведёт трейлинг: стоп идёт за ценой и не отходит назад
     if (tp1Done) {
-      const hitT2 = isLong ? c.high >= s.tp2 : c.low <= s.tp2;
-      if (hitT2) {
-        await closeBotSetup(s.id, "TP", "Обе цели взяты полностью.", result(s.tp2, true));
-        await broadcastClose(s.id, report);
-        report.closed.push({ symbol: s.symbol, status: "TP" });
-        return;
+      best = isLong ? Math.max(best, c.high) : Math.min(best, c.low);
+      const trail = isLong ? best - s.trailAbs : best + s.trailAbs;
+      const next = isLong ? Math.max(stop, trail) : Math.min(stop, trail);
+      if (next !== stop) {
+        stop = next;
+        moved = true;
       }
     }
   }
+  if (moved) await updateBotTrail(s.id, stop, best);
 
   // Лимит удержания: идея не сработала ни в плюс, ни в минус — освобождаем слот
   const ageHours = (now - new Date(s.createdAt).getTime()) / 3_600_000;
@@ -162,10 +169,10 @@ export async function runBotTick(
 // Публикация сетапа: считает денежный план и рассылает сигнал в каналы.
 export async function publishSetup(s: {
   bot: string; symbol: string; direction: BotSetup["direction"];
-  entry: number; stop: number; tp1: number; tp2: number; rr1: number; rr2: number;
+  entry: number; stop: number; tp1: number; rr1: number; trailAbs: number;
   reasons: BotSetup["reasons"]; regime: string;
 }, report: BotTickReport, caption: (x: BotSetup) => string): Promise<boolean> {
-  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.tp2);
+  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1);
   if (!plan) {
     report.errors.push(`plan ${s.symbol}: не удалось рассчитать объём и плечо`);
     return false;
@@ -173,7 +180,7 @@ export async function publishSetup(s: {
   const setup = await insertBotSetup({
     bot: s.bot, symbol: s.symbol, direction: s.direction,
     entryPrice: s.entry, stopPrice: s.stop,
-    tp1: s.tp1, tp2: s.tp2, rr1: s.rr1, rr2: s.rr2,
+    tp1: s.tp1, rr1: s.rr1, trailAbs: s.trailAbs,
     reasons: s.reasons, regime: s.regime, plan,
   });
   report.newSetups.push(s.symbol);

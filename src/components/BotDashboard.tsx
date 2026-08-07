@@ -26,15 +26,13 @@ interface BotData {
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "в позиции",
-  TP: "TP2 взят",
+  TRAIL: "снял трейлинг",
   SL: "стоп",
-  BE: "безубыток",
   TIME: "по времени",
   CANCELLED: "закрыт вручную",
 };
 const STATUS_BADGE: Record<string, string> = {
-  OPEN: "running", TP: "tp", SL: "sl",
-  BE: "time", TIME: "time", CANCELLED: "paused",
+  OPEN: "running", TRAIL: "tp", SL: "sl", TIME: "time", CANCELLED: "paused",
 };
 
 function fmtTime(iso: string | null): string {
@@ -196,9 +194,9 @@ export default function BotDashboard({
         <h2>Статистика</h2>
         <div className="stats-grid">
           <div className="stat"><div className="v">{stats.total}</div><div className="l">сделок всего</div></div>
-          <div className="stat"><div className="v pos">{stats.tp}</div><div className="l">TP2 взят</div></div>
-          <div className="stat"><div className="v">{stats.be}</div><div className="l">безубыток</div></div>
-          <div className="stat"><div className="v neg">{stats.sl}</div><div className="l">стоп</div></div>
+          <div className="stat"><div className="v">{stats.tp1Reached}</div><div className="l">дошли до TP1</div></div>
+          <div className="stat"><div className="v pos">{stats.trail}</div><div className="l">снял трейлинг</div></div>
+          <div className="stat"><div className="v neg">{stats.sl}</div><div className="l">стоп до TP1</div></div>
           <div className="stat"><div className="v">{stats.time}</div><div className="l">по времени</div></div>
           <div className="stat"><div className="v">{stats.cancelled}</div><div className="l">вручную</div></div>
           <div className="stat">
@@ -237,7 +235,11 @@ export default function BotDashboard({
               <span className="sym">#{s.symbol}</span>
               <span className={`badge ${s.direction.toLowerCase()}`}>{s.direction}</span>
               <span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
-              {s.tp1Done && <span className="badge tp">TP1 взят, стоп в БУ</span>}
+              {s.tp1Done && (
+                <span className="badge tp">
+                  TP1 взят, трейлинг ведёт от {fmtPrice(s.bestPrice)}
+                </span>
+              )}
               <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
                 {fmtTime(s.createdAt)} · осталось {leftDays.toFixed(1)} дн
               </span>
@@ -247,8 +249,8 @@ export default function BotDashboard({
               <div className="stat">
                 <div className={`v ${s.tp1Done ? "pos" : "neg"}`}>{fmtPrice(s.stopPrice)}</div>
                 <div className="l">
-                  стоп{s.tp1Done ? " (БУ)" : ""}
-                  {s.plan && ` · ${fmtUsd(s.tp1Done ? s.plan.pnl.be : s.plan.pnl.sl)}`}
+                  стоп{s.tp1Done ? " (трейл)" : ""}
+                  {s.plan && !s.tp1Done && ` · ${fmtUsd(s.plan.pnl.sl)}`}
                 </div>
               </div>
               <div className="stat">
@@ -258,10 +260,8 @@ export default function BotDashboard({
                 </div>
               </div>
               <div className="stat">
-                <div className="v pos">{fmtPrice(s.tp2)}</div>
-                <div className="l">
-                  TP2 ({s.rr2}R){s.plan && ` · ${fmtUsd(s.plan.pnl.tp2)}`}
-                </div>
+                <div className="v">{fmtPrice(s.trailAbs)}</div>
+                <div className="l">шаг трейлинга</div>
               </div>
             </div>
             {s.plan && (
@@ -276,11 +276,34 @@ export default function BotDashboard({
                 <span className="chip">🧾 комиссия ≈ {fmtMoney(s.plan.feeUsd)}</span>
               </div>
             )}
+            <div className="card" style={{ margin: "8px 0", background: "rgba(74,158,255,.06)" }}>
+              <b style={{ fontSize: 14 }}>⚙️ Как выставить на Bybit — один раз, потом не трогаем</b>
+              <ol className="hint" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                <li>
+                  Вход по рынку
+                  {s.plan && <> , плечо ×{s.plan.leverage}, изолированная маржа, объём {fmtMoney(s.plan.notional)}</>}
+                </li>
+                <li>
+                  «TP/SL» → режим <b>«Частичная позиция»</b>: стоп-лосс{" "}
+                  <b>{fmtPrice(s.initialStop)}</b> на весь объём, тейк-профит{" "}
+                  <b>{fmtPrice(s.tp1)}</b> на 50%
+                </li>
+                <li>
+                  «Скользящий стоп-ордер» → «+ Добавить»: коррекция{" "}
+                  <b>{fmtPrice(s.trailAbs)}</b> (режим «По сумме»), цена активации{" "}
+                  <b>{fmtPrice(s.tp1)}</b>
+                </li>
+              </ol>
+              <p className="hint" style={{ margin: "6px 0 0" }}>
+                До TP1 держит стоп-лосс. После TP1 половина зафиксирована, а остаток
+                биржа ведёт трейлингом сама — вмешиваться не нужно.
+              </p>
+            </div>
             <div className="hint">
               <div>• Вход: {s.reasons.entry}</div>
               <div>• Стоп: {s.reasons.stop}</div>
               <div>• TP1: {s.reasons.tp1}</div>
-              <div>• TP2: {s.reasons.tp2}</div>
+              <div>• Трейлинг: {s.reasons.trail}</div>
             </div>
             <div className="trader-actions">
               <button className="btn sm red" disabled={busy} onClick={() => cancelSetup(s)}>
