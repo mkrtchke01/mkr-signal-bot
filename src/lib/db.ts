@@ -115,6 +115,12 @@ export function ensureSchema(): Promise<void> {
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS activate_at double precision`;
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
         trail_on boolean NOT NULL DEFAULT false`;
+      // Досыпаем значения сетапам, созданным до появления этих колонок:
+      // без этого NULL превращается в 0 и трейлинг «активируется» сразу же.
+      await sql`UPDATE bot_setups SET activate_at = tp1
+        WHERE activate_at IS NULL AND tp1 IS NOT NULL`;
+      await sql`UPDATE bot_setups SET best_price = entry_price WHERE best_price IS NULL`;
+      await sql`UPDATE bot_setups SET trail_abs = 0 WHERE trail_abs IS NULL`;
       // Фиксированной второй цели больше нет
       await sql`ALTER TABLE bot_setups ALTER COLUMN tp2 DROP NOT NULL`;
       await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_status ON bot_setups(status)`;
@@ -353,22 +359,33 @@ export async function setChannelActive(chatId: string, active: boolean): Promise
 
 // ---- Трейдер-бот ----
 
+// У сетапов, созданных до появления колонки, значение NULL. Number(null) даёт 0,
+// а нулевая цена активации срабатывает на первой же свече — поэтому подставляем
+// осмысленный запасной вариант, а не приводим напрямую.
+function numOr(v: unknown, fallback: number): number {
+  if (v === null || v === undefined) return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function rowToBotSetup(r: Row): BotSetup {
+  const entry = Number(r.entry_price);
+  const tp1 = Number(r.tp1);
   return {
     id: r.id,
     bot: r.bot,
     symbol: r.symbol,
     direction: r.direction as Direction,
     status: r.status as BotSetupStatus,
-    entryPrice: Number(r.entry_price),
+    entryPrice: entry,
     stopPrice: Number(r.stop_price),
     initialStop: Number(r.initial_stop),
-    tp1: Number(r.tp1),
+    tp1,
     rr1: Number(r.rr1),
-    activateAt: Number(r.activate_at),
-    trailAbs: Number(r.trail_abs),
+    activateAt: numOr(r.activate_at, tp1),
+    trailAbs: numOr(r.trail_abs, 0), // 0 = трейлинга у сетапа нет
     trailOn: Boolean(r.trail_on),
-    bestPrice: Number(r.best_price),
+    bestPrice: numOr(r.best_price, entry),
     reasons: j(r.reasons),
     regime: r.regime,
     plan: r.plan ? j<TradePlan>(r.plan) : null,

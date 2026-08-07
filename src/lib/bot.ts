@@ -83,6 +83,10 @@ async function monitorSetup(
   let best = s.bestPrice;
   let moved = false;
 
+  // Сетапы, опубликованные до появления трейлинга, ведём по их исходным правилам:
+  // без шага трейла подтягивать стоп не от чего.
+  const canTrail = s.trailAbs > 0 && s.activateAt > 0;
+
   for (const c of candles) {
     // консервативно: сначала стоп, потом цели
     const hitStop = isLong ? c.low <= stop : c.high >= stop;
@@ -110,7 +114,7 @@ async function monitorSetup(
     }
 
     // отдельная точка включения трейлинга
-    if (!trailOn) {
+    if (canTrail && !trailOn) {
       const on = isLong ? c.high >= s.activateAt : c.low <= s.activateAt;
       if (on) {
         trailOn = true;
@@ -119,7 +123,7 @@ async function monitorSetup(
     }
 
     // трейлинг ведёт остаток: стоп идёт за ценой и не отходит назад
-    if (trailOn) {
+    if (canTrail && trailOn) {
       best = isLong ? Math.max(best, c.high) : Math.min(best, c.low);
       const trail = isLong ? best - s.trailAbs : best + s.trailAbs;
       const next = isLong ? Math.max(stop, trail) : Math.min(stop, trail);
