@@ -1,7 +1,7 @@
-// Перебор стратегий на исторических данных Binance.
+// Перебор стратегий на исторических данных Bybit.
 // Запуск: npx tsx strategy-search.ts
 import { runBacktest } from "./src/lib/backtest";
-import { fetchKlinesRange } from "./src/lib/binance";
+import { fetchKlinesRange } from "./src/lib/bybit";
 import type { Candle, Direction, Rule, TF, TraderConfig } from "./src/lib/types";
 
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"];

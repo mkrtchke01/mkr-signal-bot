@@ -1,7 +1,7 @@
 // Общие детали сканирования рынка для кастомных ботов:
 // какие монеты берём и как грузим закрытые свечи.
 
-import { fetchKlines, topSymbols } from "./binance";
+import { fetchKlines, topSymbols } from "./bybit";
 import { activeBotSetups, listBotSetups } from "./db";
 import type { Candle, TF } from "./types";
 

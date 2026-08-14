@@ -1,4 +1,4 @@
-import { fetchKlinesRange } from "./binance";
+import { fetchKlinesRange } from "./bybit";
 import {
   calcTargets, checkPriceExit, exitWarmup, profitPct, requiredTfs,
   ruleTriggeredAt, rsiExitTriggered, smallestTf, warmupCandles,

@@ -7,7 +7,7 @@
 // TP2 → закрытие остатка, стоп → выход. Если за maxHoldHours не сработало
 // ничего — выходим по рынку, чтобы сетап не занимал слот бесконечно.
 
-import { fetchKlines } from "./binance";
+import { fetchKlines } from "./bybit";
 import {
   activeBotSetups, closeBotSetup, getBotSetup, getBotState,
   insertBotSetup, markBotTp1, setBotState, touchBotSetup, updateBotTrail,

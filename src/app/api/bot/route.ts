@@ -5,7 +5,7 @@ import { botMeta } from "@/lib/customBots";
 import { botStats, getBotState, listBotSetups, wipeBotSetups } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // ручной скан делает десятки запросов к Binance
+export const maxDuration = 60; // ручной скан делает десятки запросов к Bybit
 
 // Какой бот — берём из ?bot=<slug>. По умолчанию единственный существующий.
 function resolve(req: NextRequest) {

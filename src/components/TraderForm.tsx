@@ -172,7 +172,7 @@ export default function TraderForm({ initial }: Props) {
           <div className="field">
             <label>Монета (топ-20 по объёму за 24ч)</label>
             <div className="chips">
-              {top.length === 0 && <span className="hint">Загружаю список с Binance…</span>}
+              {top.length === 0 && <span className="hint">Загружаю список с Bybit…</span>}
               {top.map((s) => (
                 <button
                   key={s} type="button"

@@ -1,7 +1,7 @@
 // Сканер бота «Пробой по тренду»: режим BTC → пробои диапазона по ликвидным
 // монетам → публикация лучших по силе выноса.
 
-import { lastPrice } from "./binance";
+import { lastPrice } from "./bybit";
 import { activeBotSetups, setBotState } from "./db";
 import { botSetupCaption } from "./botFormat";
 import { detectRegime } from "./regime";

@@ -1,4 +1,4 @@
-import { fetchKlines, lastPrice } from "./binance";
+import { fetchKlines, lastPrice } from "./bybit";
 import {
   closeSignal, getSignal, insertSignal, listTraders, openSignals,
   openSignalTraderIds, setTraderLastEntryCandle, touchSignal,

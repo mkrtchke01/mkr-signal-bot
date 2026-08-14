@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { symbolExists } from "@/lib/binance";
+import { symbolExists } from "@/lib/bybit";
 import { createTrader, listTraders, traderStats } from "@/lib/db";
 import { parseTraderPayload, ValidationError } from "@/lib/validate";
 
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const { name, config } = parseTraderPayload(await req.json());
     if (!(await symbolExists(config.symbol))) {
       return NextResponse.json(
-        { error: `Символ ${config.symbol} не найден на Binance` }, { status: 400 },
+        { error: `Символ ${config.symbol} не найден на Bybit` }, { status: 400 },
       );
     }
     const trader = await createTrader(name, config);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { lastPrice } from "@/lib/binance";
+import { lastPrice } from "@/lib/bybit";
 import { closeBotSetup, getBotSetup, reopenBotSetup } from "@/lib/db";
 import { botCloseCaption, botRearmCaption } from "@/lib/botFormat";
 import { buildPlan, realizedPnl } from "@/lib/money";
