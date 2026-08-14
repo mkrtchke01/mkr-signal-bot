@@ -6,8 +6,12 @@ import { activeBotSetups, listBotSetups } from "./db";
 import type { Candle, TF } from "./types";
 
 export const MIN_QUOTE_VOLUME = 30_000_000; // фильтр ликвидности, USDT за 24ч
+// Активы с привязкой к чему-то внешнему: стейблкоины и токенизированное золото.
+// Своей динамики у них нет, а трендовые и импульсные модели ищут именно её.
+// Акции, металлы и innovation-зона отсекаются раньше — по symbolType в bybit.ts.
 export const EXCLUDED = new Set([
   "USDCUSDT", "FDUSDUSDT", "TUSDUSDT", "USDPUSDT", "BUSDUSDT", "EURUSDT", "DAIUSDT",
+  "XAUTUSDT", "PAXGUSDT",
 ]);
 
 // Только закрытые свечи: последняя может ещё формироваться

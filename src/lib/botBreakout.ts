@@ -28,6 +28,12 @@ export const BREAKOUT_DEFAULTS: BotConfig = {
 const SYMBOL_COOLDOWN_MS = 24 * 3_600_000;
 const SCAN_UNIVERSE = 30;
 
+const CAPTION = {
+  head: "🚀 ПРОБОЙ",
+  note: "⚠️ Стратегия трендовая: около половины сделок — мелкие минусы по стопу, "
+    + "а основной заработок дают редкие длинные движения. Смысл есть только на дистанции.",
+};
+
 export async function scanBreakout(
   slug: string, cfg: BotConfig, report: BotTickReport,
 ): Promise<void> {
@@ -72,7 +78,7 @@ export async function scanBreakout(
       entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R,
       activateAt: c.activateAt, trailAbs: c.trailAbs,
       reasons: c.reasons, regime: regime.note,
-    }, report, botSetupCaption);
+    }, report, (s) => botSetupCaption(s, CAPTION));
     if (ok) published++;
   }
 }

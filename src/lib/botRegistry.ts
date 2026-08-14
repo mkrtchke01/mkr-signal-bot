@@ -4,6 +4,7 @@
 import { runBotTick } from "./bot";
 import type { BotConfig, BotScanner, BotTickReport } from "./bot";
 import { BREAKOUT_DEFAULTS, BREAKOUT_SLUG, scanBreakout } from "./botBreakout";
+import { RELSTRENGTH_DEFAULTS, RELSTRENGTH_SLUG, scanRelStrength } from "./botRelStrength";
 
 export interface BotRuntime {
   slug: string;
@@ -13,6 +14,7 @@ export interface BotRuntime {
 
 export const BOT_RUNTIMES: BotRuntime[] = [
   { slug: BREAKOUT_SLUG, defaults: BREAKOUT_DEFAULTS, scan: scanBreakout },
+  { slug: RELSTRENGTH_SLUG, defaults: RELSTRENGTH_DEFAULTS, scan: scanRelStrength },
 ];
 
 export function botRuntime(slug: string): BotRuntime | null {

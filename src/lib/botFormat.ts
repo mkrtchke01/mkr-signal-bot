@@ -21,6 +21,12 @@ function planLines(p: TradePlan): string[] {
   ];
 }
 
+// Трейлинг может включаться на том же уровне, где фиксируется половина
+// (стратегии импульса), либо заметно дальше (пробойная) — тексты разные.
+function trailAtTp1(s: BotSetup): boolean {
+  return Math.abs(s.activateAt - s.tp1) < 1e-9;
+}
+
 // Инструкция «поставил и забыл»: три экрана Bybit, дальше позиция ведёт себя сама
 export function bybitSetupLines(s: BotSetup): string[] {
   return [
@@ -34,24 +40,32 @@ export function bybitSetupLines(s: BotSetup): string[] {
     `   • Коррекция: ${fmtPrice(s.trailAbs)} (режим «По сумме»)`,
     `   • Цена активации: ✅ ${fmtPrice(s.activateAt)}`,
     ``,
-    `Дальше ничего менять не надо. Половина фиксируется на ${fmtPrice(s.tp1)},`,
-    `а если цена дойдёт до ${fmtPrice(s.activateAt)} — остаток подхватит трейлинг`,
-    `и сам закроется на откате.`,
+    ...(trailAtTp1(s)
+      ? [`Дальше ничего менять не надо. На ${fmtPrice(s.tp1)} половина фиксируется,`,
+        `и там же остаток подхватывает трейлинг — он сам закроет его на откате.`]
+      : [`Дальше ничего менять не надо. Половина фиксируется на ${fmtPrice(s.tp1)},`,
+        `а если цена дойдёт до ${fmtPrice(s.activateAt)} — остаток подхватит трейлинг`,
+        `и сам закроется на откате.`]),
   ];
 }
 
-export function botSetupCaption(s: BotSetup): string {
+export interface CaptionStyle {
+  head: string;  // шапка сигнала: у каждого бота своя
+  note: string;  // предупреждение в конце — про характер стратегии
+}
+
+export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
   const p = s.plan;
   const money = (v: number | undefined) => (v === undefined ? "" : ` → ${fmtUsd(v)}`);
   return [
-    `🚀 ПРОБОЙ ${dirBadge(s)} #${s.symbol} — ВХОД СЕЙЧАС`,
+    `${style.head} ${dirBadge(s)} #${s.symbol} — ВХОД СЕЙЧАС`,
     ``,
     `⚡ Вход по рынку: ${fmtPrice(s.entryPrice)} (текущая цена)`,
     `🛑 Стоп: ${fmtPrice(s.initialStop)}`
       + (p ? ` (${p.stopPct.toFixed(2)}% от входа)` : "") + money(p?.pnl.sl),
     `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)} — фикс 50%`,
     `📈 Остаток: трейлинг с шагом ${fmtPrice(s.trailAbs)}, `
-      + `включается на ${fmtPrice(s.activateAt)}`,
+      + (trailAtTp1(s) ? `включается там же` : `включается на ${fmtPrice(s.activateAt)}`),
     ...(p ? [``, ...planLines(p)] : []),
     ``,
     ...bybitSetupLines(s),
@@ -61,8 +75,7 @@ export function botSetupCaption(s: BotSetup): string {
     `TP1: ${s.reasons.tp1}`,
     `Трейлинг: ${s.reasons.trail}`,
     ``,
-    `⚠️ Стратегия трендовая: около половины сделок — мелкие минусы по стопу, `
-      + `а основной заработок дают редкие длинные движения. Смысл есть только на дистанции.`,
+    style.note,
   ].join("\n");
 }
 
@@ -74,8 +87,11 @@ export function botTp1Caption(s: BotSetup): string {
       + (p ? ` → ${fmtUsd(p.pnl.tp1)}` : ""),
     `Сделка уже в плюсе при любом исходе: даже если остаток выбьет стопом, `
       + `итог будет${p ? ` ${fmtUsd(p.pnl.part)}` : " положительным"}.`,
-    `Остаток идёт к ${fmtPrice(s.activateAt)} — там подхватит трейлинг. `
-      + `Делать ничего не нужно.`,
+    trailAtTp1(s)
+      ? `Остаток уже под трейлингом с шагом ${fmtPrice(s.trailAbs)} — он закроет `
+        + `позицию сам на откате. Делать ничего не нужно.`
+      : `Остаток идёт к ${fmtPrice(s.activateAt)} — там подхватит трейлинг. `
+        + `Делать ничего не нужно.`,
   ].join("\n");
 }
 

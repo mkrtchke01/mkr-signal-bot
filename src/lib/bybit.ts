@@ -102,13 +102,40 @@ export async function lastPrice(symbol: string): Promise<number> {
 
 export interface SymbolVolume { symbol: string; quoteVolume: number; lastPrice: number }
 
-// Топ-N USDT-перпов по обороту за 24ч (turnover24h — оборот в USDT).
+// Bybit размечает инструменты полем symbolType: пусто — обычная крипта,
+// "stock" — токенизированные акции (AAPL, AMD, SanDisk), "commodity" — золото,
+// серебро, нефть, "innovation" — зона свежих и рискованных листингов.
+// Ботам нужна только первая группа: на акциях Nasdaq и металлах крипто-модели
+// бессмысленны (там ещё и разрывы по выходным), а в innovation-зоне цена живёт
+// разовыми выносами, а не движениями, на которых стратегии проверялись.
+async function cryptoSymbols(): Promise<Set<string>> {
+  const out = new Set<string>();
+  let cursor = "";
+  for (let page = 0; page < 5; page++) {
+    const q = `category=${CATEGORY}&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const r = await getResult(`/v5/market/instruments-info?${q}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const i of (r.list ?? []) as any[]) {
+      if (!i.symbolType) out.add(i.symbol as string);
+    }
+    cursor = r.nextPageCursor ?? "";
+    if (!cursor) break;
+  }
+  if (!out.size) throw new Error("Bybit вернул пустой список инструментов");
+  return out;
+}
+
+// Топ-N крипто-перпов USDT по обороту за 24ч (turnover24h — оборот в USDT).
 // Дефис в тикере — срочные контракты с датой экспирации, они нам не нужны.
 export async function topSymbols(n = 20): Promise<SymbolVolume[]> {
-  const r = await getResult(`/v5/market/tickers?category=${CATEGORY}`);
+  const [r, crypto] = await Promise.all([
+    getResult(`/v5/market/tickers?category=${CATEGORY}`),
+    cryptoSymbols(),
+  ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (r.list as any[])
-    .filter((t) => typeof t.symbol === "string" && t.symbol.endsWith("USDT") && !t.symbol.includes("-"))
+    .filter((t) => typeof t.symbol === "string" && t.symbol.endsWith("USDT")
+      && !t.symbol.includes("-") && crypto.has(t.symbol))
     .map((t) => ({
       symbol: t.symbol as string,
       quoteVolume: Number(t.turnover24h),
