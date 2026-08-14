@@ -33,11 +33,11 @@ const STEP_MS = TF_MS[STEP_TF];
 // применимости и глубина прогрева EMA200 на часовом ряде.
 interface Variant { key: string; maxEdgePp: number; maxStopPct: number; h1: number }
 const VARIANTS: Variant[] = [
-  { key: "порог стопа 10%", maxEdgePp: Infinity, maxStopPct: 10, h1: H1_BARS },
-  { key: "порог стопа 12%", maxEdgePp: Infinity, maxStopPct: 12, h1: H1_BARS },
-  { key: "порог стопа 15%", maxEdgePp: Infinity, maxStopPct: 15, h1: H1_BARS },
-  { key: "порог стопа 20%", maxEdgePp: Infinity, maxStopPct: 20, h1: H1_BARS },
-  { key: "порог стопа 15% + обгон 40 п.п.", maxEdgePp: 40, maxStopPct: 15, h1: H1_BARS },
+  // то, что лежит в main после исправления
+  { key: "как сейчас в коде (стоп 25%, обгон 60 п.п.)", maxEdgePp: 60, maxStopPct: 25, h1: H1_BARS },
+  // соседние значения порога — проверка, что рядом не обрыв
+  { key: "порог стопа 22%", maxEdgePp: 60, maxStopPct: 22, h1: H1_BARS },
+  { key: "порог стопа 30%", maxEdgePp: 60, maxStopPct: 30, h1: H1_BARS },
 ];
 
 // ─────────────────────────── данные ───────────────────────────
