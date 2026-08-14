@@ -3,9 +3,10 @@
 //    когда бот на паузе — пауза останавливает только поиск новых сетапов.
 //  - Поиск сетапов у каждого бота свой: сканер берётся из реестра по slug.
 //
-// Позиция ведётся по минутным свечам: TP1 → фиксация 50% и стоп в безубыток,
-// TP2 → закрытие остатка, стоп → выход. Если за maxHoldHours не сработало
-// ничего — выходим по рынку, чтобы сетап не занимал слот бесконечно.
+// Позиция ведётся по минутным свечам: TP1 → фиксация 50%, дальше остаток
+// подхватывает трейлинг, стоп → выход. Правила одной свечи живут в track.ts —
+// отдельным чистым модулем, чтобы бэктесты гоняли ровно тот же код.
+// Если за maxHoldHours не сработало ничего — выходим по рынку.
 
 import { fetchKlines } from "./bybit";
 import {
@@ -15,6 +16,8 @@ import {
 import { botCloseCaption, botTp1Caption } from "./botFormat";
 import { broadcastText } from "./telegram";
 import { buildPlan, realizedPnl } from "./money";
+import { trackCandle } from "./track";
+import type { TrackState } from "./track";
 import type { BotSetup } from "./types";
 
 export interface BotConfig {
@@ -77,63 +80,31 @@ async function monitorSetup(
   const since = Math.max(s.lastCheckedMs || 0, new Date(s.createdAt).getTime());
   const candles = await fetchKlines(s.symbol, "1m", { startTime: since - 60_000, limit: 1000 });
 
-  let tp1Done = s.tp1Done;
-  let trailOn = s.trailOn;
-  let stop = s.stopPrice;
-  let best = s.bestPrice;
-  let moved = false;
-
-  // Сетапы, опубликованные до появления трейлинга, ведём по их исходным правилам:
-  // без шага трейла подтягивать стоп не от чего.
-  const canTrail = s.trailAbs > 0 && s.activateAt > 0;
+  const st: TrackState = {
+    stop: s.stopPrice, best: s.bestPrice,
+    tp1Done: s.tp1Done, trailOn: s.trailOn, moved: false,
+  };
 
   for (const c of candles) {
-    // консервативно: сначала стоп, потом цели
-    const hitStop = isLong ? c.low <= stop : c.high >= stop;
-    if (hitStop) {
-      const st = trailOn ? "TRAIL" : tp1Done ? "PART" : "SL";
+    const step = trackCandle(s, st, c);
+    if (step.stopped) {
+      const status = st.trailOn ? "TRAIL" : st.tp1Done ? "PART" : "SL";
       const reason = {
         TRAIL: "Трейлинг снял прибыль: движение выдохлось.",
         PART: "Остаток выбит стопом, но половина зафиксирована на TP1 — сделка в плюсе.",
         SL: "Пробой оказался ложным — цена вернулась в диапазон.",
-      }[st];
-      await closeBotSetup(s.id, st, reason, result(stop, tp1Done));
+      }[status];
+      await closeBotSetup(s.id, status, reason, result(st.stop, st.tp1Done));
       await broadcastClose(s.id, report);
-      report.closed.push({ symbol: s.symbol, status: st });
+      report.closed.push({ symbol: s.symbol, status });
       return;
     }
-
-    // фиксация половины: стоп на остаток пока не двигаем
-    if (!tp1Done) {
-      const hitT1 = isLong ? c.high >= s.tp1 : c.low <= s.tp1;
-      if (hitT1) {
-        tp1Done = true;
-        await markBotTp1(s.id);
-        report.errors.push(...await broadcastText(botTp1Caption(s)));
-      }
-    }
-
-    // отдельная точка включения трейлинга
-    if (canTrail && !trailOn) {
-      const on = isLong ? c.high >= s.activateAt : c.low <= s.activateAt;
-      if (on) {
-        trailOn = true;
-        best = isLong ? c.high : c.low;
-      }
-    }
-
-    // трейлинг ведёт остаток: стоп идёт за ценой и не отходит назад
-    if (canTrail && trailOn) {
-      best = isLong ? Math.max(best, c.high) : Math.min(best, c.low);
-      const trail = isLong ? best - s.trailAbs : best + s.trailAbs;
-      const next = isLong ? Math.max(stop, trail) : Math.min(stop, trail);
-      if (next !== stop) {
-        stop = next;
-        moved = true;
-      }
+    if (step.tp1Hit) {
+      await markBotTp1(s.id);
+      report.errors.push(...await broadcastText(botTp1Caption(s)));
     }
   }
-  if (moved) await updateBotTrail(s.id, stop, best);
+  if (st.moved) await updateBotTrail(s.id, st.stop, st.best);
 
   // Лимит удержания: идея не сработала ни в плюс, ни в минус — освобождаем слот
   const ageHours = (now - new Date(s.createdAt).getTime()) / 3_600_000;
@@ -141,7 +112,7 @@ async function monitorSetup(
     const exit = candles[candles.length - 1].close;
     await closeBotSetup(s.id, "TIME",
       `Прошло ${Math.round(ageHours / 24)} дн, цели не достигнуты — выходим по рынку.`,
-      result(exit, tp1Done));
+      result(exit, st.tp1Done));
     await broadcastClose(s.id, report);
     report.closed.push({ symbol: s.symbol, status: "TIME" });
     return;

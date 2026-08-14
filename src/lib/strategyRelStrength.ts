@@ -12,8 +12,9 @@
 //     он только ухудшал результат, эту роль играет тренд самой монеты.
 //  4. Вход по рынку сразу по закрытию сигнальной свечи — ждать здесь нечего,
 //     преимущество как раз в том, что движение уже началось.
-//  5. Стоп 6×ATR(14, 15m). Широкий намеренно: на коротком стопе круговые
-//     издержки (комиссии + проскальзывание) съедают заметную долю риска.
+//  5. Стоп 6×ATR(14, 15m) — на практике медиана около 6% от цены. Широкий
+//     намеренно: на коротком стопе круговые издержки (комиссии +
+//     проскальзывание) съедают заметную долю риска.
 //  6. TP1 на 1.5R фиксирует половину, там же остаток подхватывает трейлинг
 //     с шагом 2×ATR.
 //  7. Если за неделю не сработало ничего — выходим по рынку.
@@ -21,6 +22,11 @@
 // Приятное свойство конструкции: TP1 стоит на 9×ATR от входа, а трейлинг идёт
 // в 2×ATR за ценой. Значит в момент срабатывания TP1 трейл встаёт минимум на
 // 7×ATR = +1.17R, и дальше сделка закрывается не хуже +1.34R по сумме.
+//
+// ⚠️ СТАТУС: НЕ ПОДТВЕРЖДЕНА. Стратегия отобрана перебором, но прогон этого же
+// кода на истории даёт результат в диапазоне от −$10 до +$309 за четыре года
+// в зависимости от одного порога, причём немонотонно. Устойчивого преимущества
+// на данных не видно; бот выключен по умолчанию. Подробности в README.
 
 import { atrWilder, lastEma } from "./indicators";
 import { fmtPrice } from "./format";
@@ -35,12 +41,16 @@ export const MAX_HOLD_HOURS = 168;  // неделя, дальше выход п�
 export const TREND_FAST = 50;       // EMA на 1h для фильтра тренда
 export const TREND_SLOW = 200;
 
-// Границы применимости модели. На тестах стоп выходил примерно в 1.5% от цены,
-// а обгон редко превышал десяток пунктов. Всё, что сильно выходит за эти рамки —
-// не импульс, а разовый вынос (листинг, новость, памп): там нет ни продолжения,
-// ни вменяемого плеча, а объём позиции ужимается до копеек.
-export const MAX_STOP_PCT = 8;      // стоп шире — инструмент слишком волатилен
-export const MAX_EDGE_PP = 25;      // обгон больше — это не импульс
+// Грубые границы здравого смысла, а не подобранные параметры. Медианный стоп
+// у стратегии около 6% от цены — это её нормальный режим, а не аномалия.
+// Порог отсекает только совсем дикие инструменты, где 6×ATR уходит за четверть
+// цены: там нет ни продолжения движения, ни вменяемого плеча.
+//
+// ВНИМАНИЕ: значение порога сильно влияет на исторический результат и влияет
+// немонотонно (8% → −$10, 10% → +$98, 15% → +$48, 20% → +$309 за четыре года).
+// Это признак того, что устойчивого преимущества у стратегии нет — см. README.
+export const MAX_STOP_PCT = 25;     // стоп шире — инструмент за рамками модели
+export const MAX_EDGE_PP = 60;      // обгон больше — это уже не импульс, а вынос
 
 // сколько свечей нужно сканеру: окно сравнения + прогрев ATR и EMA50
 export const M15_BARS = 300;
@@ -76,8 +86,12 @@ function retPct(c: Candle[], lookback: number): number {
  *   иначе сравнение считается по разным отрезкам и врёт
  * @param livePrice текущая цена — вход по рынку
  */
+export interface RsLimits { maxEdgePp: number; maxStopPct: number }
+export const DEFAULT_LIMITS: RsLimits = { maxEdgePp: MAX_EDGE_PP, maxStopPct: MAX_STOP_PCT };
+
 export function findRelStrength(
   symbol: string, m15: Candle[], h1: Candle[], btc15: Candle[], livePrice: number,
+  limits: RsLimits = DEFAULT_LIMITS,
 ): RsCandidate | null {
   if (!Number.isFinite(livePrice) || livePrice <= 0) return null;
   if (m15.length < RS_LOOKBACK + 30 || btc15.length < RS_LOOKBACK + 1) return null;
@@ -105,7 +119,7 @@ export function findRelStrength(
   if (edge > RS_THRESHOLD && fast > slow) direction = "LONG";
   else if (edge < -RS_THRESHOLD && fast < slow) direction = "SHORT";
   if (!direction) return null;
-  if (Math.abs(edge) > MAX_EDGE_PP) return null;
+  if (Math.abs(edge) > limits.maxEdgePp) return null;
 
   const isLong = direction === "LONG";
   const sign = isLong ? 1 : -1;
@@ -113,7 +127,7 @@ export function findRelStrength(
   const stop = entry - sign * STOP_ATR * a;
   const risk = Math.abs(entry - stop);
   if (!(risk > 0)) return null;
-  if ((risk / entry) * 100 > MAX_STOP_PCT) return null;
+  if ((risk / entry) * 100 > limits.maxStopPct) return null;
   const tp1 = entry + sign * TP1_R * risk;
   const trailAbs = TRAIL_ATR * a;
 
