@@ -25,7 +25,8 @@ import {
   BREAKOUT_PERIOD, STOP_ATR, TP1_R, TRAIL_ACTIVATE_R, TRAIL_ATR,
   MAX_HOLD_HOURS, CONFIRM_MIN_MS, CONFIRM_MAX_MS,
 } from "./src/lib/strategyBreakout";
-import type { Direction } from "./src/lib/types";
+import { trackCandle, type TrackState } from "./src/lib/track";
+import type { Candle, Direction } from "./src/lib/types";
 
 // повтор констант из botScan.ts — тот тянет за собой db и postgres
 const MIN_QUOTE_VOLUME = 30_000_000;
@@ -307,15 +308,18 @@ function simulateTrade(s: SymState, e: Entry, v: Variant): Outcome {
   const risk = Math.abs(e.entry - e.stop);
   const plan = buildPlan(e.direction, e.entry, e.stop, e.tp1);
   const qty = plan?.qty ?? 0;
-  const st = s.step;
+  const ser = s.step;
   const activateAt = v.activateR === undefined
     ? e.activateAt
     : e.entry + sign * v.activateR * risk;
 
-  let stop = e.stop;
-  let best = e.entry;
-  let tp1Done = false;
-  let trailOn = false;
+  // Сопровождение ведёт боевой trackCandle — тот же, что крутится в боте.
+  // Правило переноса стопа после TP1 (для сравнения вариантов) применяется
+  // снаружи: оно вступает в силу со следующей свечи, как и в бою.
+  const levels = { direction: e.direction, tp1: e.tp1, activateAt, trailAbs: e.trailAbs };
+  const st: TrackState = {
+    stop: e.stop, best: e.entry, tp1Done: false, trailOn: false, moved: false,
+  };
   let funding = 0;
 
   // фандинг платится каждые 8 часов; до TP1 в позиции весь объём, после — половина
@@ -323,6 +327,7 @@ function simulateTrade(s: SymState, e: Entry, v: Variant): Outcome {
   while (fi < s.funding.t.length && s.funding.t[fi] < e.openedAt) fi++;
 
   const done = (status: Status, exitTime: number, exitPrice: number): Outcome => {
+    const tp1Done = st.tp1Done;
     const gross = tp1Done
       ? qty * 0.5 * sign * (e.tp1 - e.entry) + qty * 0.5 * sign * (exitPrice - e.entry)
       : qty * sign * (exitPrice - e.entry);
@@ -338,36 +343,29 @@ function simulateTrade(s: SymState, e: Entry, v: Variant): Outcome {
     };
   };
 
-  for (let i = e.stepIdx; i < st.n; i++) {
-    // порядок как в bot.ts: сначала стоп, потом цели
-    if (isLong ? st.l[i] <= stop : st.h[i] >= stop) {
-      return done(trailOn ? "TRAIL" : tp1Done ? "PART" : "SL", st.t[i], stop);
+  const bar: Candle = {
+    openTime: 0, open: 0, high: 0, low: 0, close: 0, volume: 0, closeTime: 0,
+  };
+  for (let i = e.stepIdx; i < ser.n; i++) {
+    bar.openTime = ser.t[i]; bar.open = ser.o[i];
+    bar.high = ser.h[i]; bar.low = ser.l[i]; bar.close = ser.c[i];
+    const step = trackCandle(levels, st, bar);
+    if (step.stopped) {
+      return done(st.trailOn ? "TRAIL" : st.tp1Done ? "PART" : "SL", ser.t[i], st.stop);
     }
-    if (!tp1Done && (isLong ? st.h[i] >= e.tp1 : st.l[i] <= e.tp1)) {
-      tp1Done = true;
-      if (v.beR !== null) {
-        const be = e.entry + sign * v.beR * risk;
-        stop = isLong ? Math.max(stop, be) : Math.min(stop, be);
-      }
-    }
-    if (!trailOn && (isLong ? st.h[i] >= activateAt : st.l[i] <= activateAt)) {
-      trailOn = true;
-      best = isLong ? st.h[i] : st.l[i];
-    }
-    if (trailOn) {
-      best = isLong ? Math.max(best, st.h[i]) : Math.min(best, st.l[i]);
-      const trail = best - sign * e.trailAbs;
-      stop = isLong ? Math.max(stop, trail) : Math.min(stop, trail);
+    if (step.tp1Hit && v.beR !== null) {
+      const be = e.entry + sign * v.beR * risk;
+      st.stop = isLong ? Math.max(st.stop, be) : Math.min(st.stop, be);
     }
     // выплаты фандинга, попавшие в эту свечу
-    const end = st.t[i] + STEP_MS;
+    const end = ser.t[i] + STEP_MS;
     while (fi < s.funding.t.length && s.funding.t[fi] < end) {
-      funding += s.funding.rate[fi] * qty * (tp1Done ? 0.5 : 1) * st.c[i] * sign;
+      funding += s.funding.rate[fi] * qty * (st.tp1Done ? 0.5 : 1) * ser.c[i] * sign;
       fi++;
     }
-    if (end - e.openedAt >= HOLD_MS) return done("TIME", end, st.c[i]);
+    if (end - e.openedAt >= HOLD_MS) return done("TIME", end, ser.c[i]);
   }
-  return done("OPEN", st.t[st.n - 1] + STEP_MS, st.c[st.n - 1]);
+  return done("OPEN", ser.t[ser.n - 1] + STEP_MS, ser.c[ser.n - 1]);
 }
 
 // ─────────────────────────── портфельный прогон ───────────────────────────
