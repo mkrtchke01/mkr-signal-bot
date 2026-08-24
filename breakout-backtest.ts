@@ -432,11 +432,13 @@ function runPortfolio(
       const stop = live - sign * STOP_ATR * a;
       const risk = Math.abs(live - stop);
       if (!(risk > 0)) continue;
+      const tp1 = live + sign * TP1_R * risk;
+      const activateAt = live + sign * TRAIL_ACTIVATE_R * risk;
+      // отрицательных цен не бывает — такой сетап бот не публикует
+      if (!(stop > 0) || !(tp1 > 0) || !(activateAt > 0)) continue;
       cands.push({
         symbol: s.symbol, direction, openedAt: t, stepIdx: j + 1,
-        entry: live, stop,
-        tp1: live + sign * TP1_R * risk,
-        activateAt: live + sign * TRAIL_ACTIVATE_R * risk,
+        entry: live, stop, tp1, activateAt,
         trailAbs: TRAIL_ATR * a, score: Math.abs(bar.c - e50) / a,
       });
     }

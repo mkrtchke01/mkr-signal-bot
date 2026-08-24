@@ -22,6 +22,14 @@
 //
 // В момент активации трейлинг стоит уже на 9.5×ATR выше входа (5R − 3×ATR),
 // то есть переносить стоп в безубыток отдельно не нужно — трейлинг заведомо выше.
+//
+// Все уровни обязаны быть положительными — отрицательных цен не бывает. У шорта
+// прибыль ограничена ценой входа: ниже нуля цена не идёт, поэтому при стопе шире
+// 20% цены активация трейлинга (5R) уезжает в минус, а при стопе шире 66% — и TP1.
+// Выставить такие цели на бирже нельзя, отработать тоже, поэтому сетап
+// отбрасывается на входе. На практике так отсекаются свежие листинги, попавшие
+// в топ по обороту: у них ATR(4h) доходит до трети цены, и 2.5 таких ATR — уже
+// не стоп, а ожидание ликвидации.
 
 import { atrWilder, lastEma } from "./indicators";
 import type { Candle, Direction } from "./types";
@@ -61,11 +69,11 @@ export function levelsFromStop(direction: Direction, entry: number, initialStop:
   if (!(entry > 0) || !(risk > 0)) return null;
   const isLong = direction === "LONG";
   const at = (r: number) => (isLong ? entry + r * risk : entry - r * risk);
-  return {
-    tp1: at(TP1_R),
-    activateAt: at(TRAIL_ACTIVATE_R),
-    trailAbs: (TRAIL_ATR / STOP_ATR) * risk,
-  };
+  const tp1 = at(TP1_R);
+  const activateAt = at(TRAIL_ACTIVATE_R);
+  // Уровни ниже нуля пересчитывать не во что: сетап неисполним
+  if (!(tp1 > 0) || !(activateAt > 0)) return null;
+  return { tp1, activateAt, trailAbs: (TRAIL_ATR / STOP_ATR) * risk };
 }
 
 function fmt(p: number): string {
@@ -134,6 +142,8 @@ export function findBreakout(
   const tp1 = at(TP1_R);
   const activateAt = at(TRAIL_ACTIVATE_R);
   const trailAbs = TRAIL_ATR * a;
+  // Отрицательная цена невозможна — такой уровень не выставить на бирже
+  if (!(stop > 0) || !(tp1 > 0) || !(activateAt > 0)) return null;
 
   const range = fmt(extremeClose(h4, i, BREAKOUT_PERIOD, isLong ? "max" : "min"));
   const word = isLong ? "выше" : "ниже";
