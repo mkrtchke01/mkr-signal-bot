@@ -351,7 +351,7 @@ export default function BotDashboard({
               <tr>
                 <th>Монета</th><th>Напр.</th><th>Статус</th><th>Вход</th>
                 <th>Выход</th><th>Плечо</th><th>Итог, $</th><th>Движение</th>
-                <th>Закрыт</th><th></th>
+                <th>Открыт</th><th>Закрыт</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -369,6 +369,7 @@ export default function BotDashboard({
                   <td className={s.profitPct === null ? "muted" : s.profitPct >= 0 ? "pos" : "neg"}>
                     {fmtPct(s.profitPct)}
                   </td>
+                  <td className="muted">{fmtTime(s.createdAt)}</td>
                   <td className="muted">{fmtTime(s.closedAt)}</td>
                   <td>
                     <button
