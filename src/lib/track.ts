@@ -12,11 +12,13 @@ export interface TrackState {
   moved: boolean;    // стоп сдвигался — есть что сохранить
 }
 
-export type TrackLevels = Pick<BotSetup, "direction" | "tp1" | "activateAt" | "trailAbs">;
+export type TrackLevels =
+  Pick<BotSetup, "direction" | "tp1" | "activateAt" | "trailAbs" | "tpFull">;
 
 export interface TrackStep {
   stopped: boolean;  // позицию выбило стопом (обычным или трейлинговым)
   tp1Hit: boolean;   // на этой свече взята частичная фиксация
+  tpHit: boolean;    // цель взята целиком — позиция закрыта в плюс
 }
 
 /**
@@ -30,7 +32,16 @@ export function trackCandle(s: TrackLevels, st: TrackState, c: Candle): TrackSte
   // правилам: без шага трейла подтягивать стоп не от чего.
   const canTrail = s.trailAbs > 0 && s.activateAt > 0;
 
-  if (isLong ? c.low <= st.stop : c.high >= st.stop) return { stopped: true, tp1Hit: false };
+  if (isLong ? c.low <= st.stop : c.high >= st.stop) {
+    return { stopped: true, tp1Hit: false, tpHit: false };
+  }
+
+  // Стратегии без частичной фиксации: цель закрывает всю позицию, и вести
+  // после неё нечего — остальные правила к таким сетапам не применяются.
+  if (s.tpFull) {
+    const hit = isLong ? c.high >= s.tp1 : c.low <= s.tp1;
+    return { stopped: false, tp1Hit: false, tpHit: hit };
+  }
 
   // фиксация половины: стоп на остаток здесь не двигаем
   let tp1Hit = false;
@@ -55,5 +66,5 @@ export function trackCandle(s: TrackLevels, st: TrackState, c: Candle): TrackSte
       st.moved = true;
     }
   }
-  return { stopped: false, tp1Hit };
+  return { stopped: false, tp1Hit, tpHit: false };
 }

@@ -71,6 +71,7 @@ export function buildPlan(
       // после TP1 стоп на остаток остаётся исходным — это и есть худший исход
       part: r2(half1 + legPnl(qty, 0.5, entry, stop, isLong)),
       sl: r2(legPnl(qty, 1, entry, stop, isLong)),
+      tpFull: r2(legPnl(qty, 1, entry, tp1, isLong)),
     },
   };
 }

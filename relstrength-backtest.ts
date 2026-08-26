@@ -120,9 +120,11 @@ function runTrade(
     };
   };
 
+  // Импульсная стратегия фиксирует половину и ведёт остаток трейлингом
+  const levels = { ...c, tpFull: false };
   for (let i = startIdx; i < x.step.length; i++) {
     const bar = x.step[i];
-    const step = trackCandle(c, st, bar);
+    const step = trackCandle(levels, st, bar);
     if (step.stopped) {
       return done(st.trailOn ? "TRAIL" : st.tp1Done ? "PART" : "SL", bar.openTime, st.stop);
     }

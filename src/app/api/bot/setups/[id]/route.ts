@@ -3,7 +3,11 @@ import { lastPrice } from "@/lib/bybit";
 import { closeBotSetup, getBotSetup, reopenBotSetup } from "@/lib/db";
 import { botCloseCaption, botRearmCaption } from "@/lib/botFormat";
 import { buildPlan, realizedPnl } from "@/lib/money";
+import { BTC_INTRADAY_SLUG } from "@/lib/botBtcIntraday";
 import { levelsFromStop, TP1_R } from "@/lib/strategyBreakout";
+import {
+  levelsFromStop as intradayLevels, TP_R as INTRADAY_TP_R,
+} from "@/lib/strategyBtcIntraday";
 import { broadcastText } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
@@ -59,22 +63,31 @@ export async function POST(
       return NextResponse.json({ error: "Сетап и так в работе" }, { status: 400 });
     }
 
-    const lv = levelsFromStop(s.direction, s.entryPrice, s.initialStop);
-    if (!lv) {
+    // Цели пересчитывает та стратегия, которая сетап породила: у каждого бота
+    // свои R до цели и свои параметры трейлинга
+    const lv = s.bot === BTC_INTRADAY_SLUG
+      ? intradayLevels(s.direction, s.entryPrice, s.initialStop)
+      : levelsFromStop(s.direction, s.entryPrice, s.initialStop);
+    if (!lv || !(lv.tp1 > 0)) {
       return NextResponse.json({ error: "Не удалось пересчитать уровни" }, { status: 400 });
     }
+    const rr1 = s.bot === BTC_INTRADAY_SLUG ? INTRADAY_TP_R : TP1_R;
     const plan = buildPlan(s.direction, s.entryPrice, s.initialStop, lv.tp1);
     if (!plan) {
       return NextResponse.json({ error: "Не удалось пересчитать план" }, { status: 400 });
     }
 
     const fresh = await reopenBotSetup(id, {
-      tp1: lv.tp1, rr1: TP1_R, activateAt: lv.activateAt, trailAbs: lv.trailAbs,
+      tp1: lv.tp1, rr1, activateAt: lv.activateAt, trailAbs: lv.trailAbs,
       plan,
       reasons: {
         ...s.reasons,
-        tp1: `${TP1_R}R: фиксируем половину — цели пересчитаны по действующим правилам`,
-        trail: `трейлинг подхватывает остаток с цены активации, шаг постоянный`,
+        tp1: s.tpFull
+          ? `${rr1}R: выходим целиком — цель пересчитана от прежнего стопа`
+          : `${rr1}R: фиксируем половину — цели пересчитаны по действующим правилам`,
+        trail: s.tpFull
+          ? `трейлинга нет — позиция закрывается целиком на тейке или на стопе`
+          : `трейлинг подхватывает остаток с цены активации, шаг постоянный`,
       },
     });
     if (!fresh) {

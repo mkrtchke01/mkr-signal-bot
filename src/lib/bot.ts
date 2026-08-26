@@ -99,6 +99,16 @@ async function monitorSetup(
       report.closed.push({ symbol: s.symbol, status });
       return;
     }
+    // Цель без частичной фиксации: позиция закрыта целиком, вести нечего.
+    // tp1_done ставим, чтобы сетап попал в статистику «дошли до цели».
+    if (step.tpHit) {
+      await markBotTp1(s.id);
+      await closeBotSetup(s.id, "TP", "Цель взята — позиция закрыта целиком.",
+        result(s.tp1, false));
+      await broadcastClose(s.id, report);
+      report.closed.push({ symbol: s.symbol, status: "TP" });
+      return;
+    }
     if (step.tp1Hit) {
       await markBotTp1(s.id);
       report.errors.push(...await broadcastText(botTp1Caption(s)));
@@ -156,7 +166,7 @@ export async function runBotTick(
 export async function publishSetup(s: {
   bot: string; symbol: string; direction: BotSetup["direction"];
   entry: number; stop: number; tp1: number; rr1: number;
-  activateAt: number; trailAbs: number;
+  activateAt: number; trailAbs: number; tpFull?: boolean;
   reasons: BotSetup["reasons"]; regime: string;
 }, report: BotTickReport, caption: (x: BotSetup) => string): Promise<boolean> {
   const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1);
@@ -168,7 +178,7 @@ export async function publishSetup(s: {
     bot: s.bot, symbol: s.symbol, direction: s.direction,
     entryPrice: s.entry, stopPrice: s.stop,
     tp1: s.tp1, rr1: s.rr1, activateAt: s.activateAt, trailAbs: s.trailAbs,
-    reasons: s.reasons, regime: s.regime, plan,
+    tpFull: s.tpFull, reasons: s.reasons, regime: s.regime, plan,
   });
   report.newSetups.push(s.symbol);
   report.errors.push(...await broadcastText(caption(setup)));

@@ -26,6 +26,7 @@ interface BotData {
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "в позиции",
+  TP: "тейк",
   TRAIL: "снял трейлинг",
   PART: "плюс по TP1",
   SL: "стоп",
@@ -33,7 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELLED: "закрыт вручную",
 };
 const STATUS_BADGE: Record<string, string> = {
-  OPEN: "running", TRAIL: "tp", PART: "tp", SL: "sl",
+  OPEN: "running", TP: "tp", TRAIL: "tp", PART: "tp", SL: "sl",
   TIME: "time", CANCELLED: "paused",
 };
 
@@ -208,7 +209,7 @@ export default function BotDashboard({
               style={{ width: 90 }}
               onChange={(e) => post({ action: "config", scanMinutes: Number(e.target.value) })}
             >
-              {[5, 15, 30, 60, 120, 240].map((n) => <option key={n} value={n}>{n} мин</option>)}
+              {[1, 5, 15, 30, 60, 120, 240].map((n) => <option key={n} value={n}>{n} мин</option>)}
             </select>
           </label>
         </div>
@@ -219,7 +220,8 @@ export default function BotDashboard({
         <h2>Статистика</h2>
         <div className="stats-grid">
           <div className="stat"><div className="v">{stats.total}</div><div className="l">сделок всего</div></div>
-          <div className="stat"><div className="v">{stats.tp1Reached}</div><div className="l">дошли до TP1</div></div>
+          <div className="stat"><div className="v">{stats.tp1Reached}</div><div className="l">дошли до цели</div></div>
+          <div className="stat"><div className="v pos">{stats.tp}</div><div className="l">по тейку</div></div>
           <div className="stat"><div className="v pos">{stats.trail}</div><div className="l">снял трейлинг</div></div>
           <div className="stat"><div className="v pos">{stats.part}</div><div className="l">плюс по TP1</div></div>
           <div className="stat"><div className="v neg">{stats.sl}</div><div className="l">стоп до TP1</div></div>
@@ -254,7 +256,9 @@ export default function BotDashboard({
       )}
       {active.map((s) => {
         const ageH = (Date.now() - new Date(s.createdAt).getTime()) / 3_600_000;
-        const leftDays = Math.max(0, (config.maxHoldHours - ageH) / 24);
+        // У внутридневных ботов лимит удержания — часы, дни там нечитаемы
+        const leftH = Math.max(0, config.maxHoldHours - ageH);
+        const left = leftH >= 48 ? `${(leftH / 24).toFixed(1)} дн` : `${leftH.toFixed(1)} ч`;
         return (
           <div className="card trader-card" key={s.id}>
             <div className="trader-head">
@@ -266,7 +270,7 @@ export default function BotDashboard({
                 <span className="badge tp">трейлинг ведёт от {fmtPrice(s.bestPrice)}</span>
               )}
               <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
-                {fmtTime(s.createdAt)} · осталось {leftDays.toFixed(1)} дн
+                {fmtTime(s.createdAt)} · осталось {left}
               </span>
             </div>
             <div className="stats-grid">
@@ -281,15 +285,18 @@ export default function BotDashboard({
               <div className="stat">
                 <div className="v pos">{fmtPrice(s.tp1)}</div>
                 <div className="l">
-                  TP1 ({s.rr1}R){s.plan && ` · ${fmtUsd(s.plan.pnl.tp1)}`}
+                  {s.tpFull ? "тейк" : "TP1"} ({s.rr1}R)
+                  {s.plan && ` · ${fmtUsd(s.tpFull ? s.plan.pnl.tpFull : s.plan.pnl.tp1)}`}
                 </div>
               </div>
-              <div className="stat">
-                <div className={`v ${s.trailOn ? "pos" : ""}`}>{fmtPrice(s.activateAt)}</div>
-                <div className="l">
-                  трейлинг {s.trailOn ? "включён" : "с этой цены"} · шаг {fmtPrice(s.trailAbs)}
+              {!s.tpFull && (
+                <div className="stat">
+                  <div className={`v ${s.trailOn ? "pos" : ""}`}>{fmtPrice(s.activateAt)}</div>
+                  <div className="l">
+                    трейлинг {s.trailOn ? "включён" : "с этой цены"} · шаг {fmtPrice(s.trailAbs)}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
             {s.plan && (
               <div className="chips" style={{ marginBottom: 4 }}>
@@ -310,28 +317,47 @@ export default function BotDashboard({
                   Вход по рынку
                   {s.plan && <> , плечо ×{s.plan.leverage}, изолированная маржа, объём {fmtMoney(s.plan.notional)}</>}
                 </li>
-                <li>
-                  «TP/SL» → режим <b>«Частичная позиция»</b>: стоп-лосс{" "}
-                  <b>{fmtPrice(s.initialStop)}</b> на весь объём, тейк-профит{" "}
-                  <b>{fmtPrice(s.tp1)}</b> на 50%
-                </li>
-                <li>
-                  «Скользящий стоп-ордер» → «+ Добавить»: коррекция{" "}
-                  <b>{fmtPrice(s.trailAbs)}</b> (режим «По сумме»), цена активации{" "}
-                  <b>{fmtPrice(s.activateAt)}</b>
-                </li>
+                {s.tpFull ? (
+                  <li>
+                    «TP/SL» на весь объём: стоп-лосс <b>{fmtPrice(s.initialStop)}</b>,
+                    тейк-профит <b>{fmtPrice(s.tp1)}</b>
+                  </li>
+                ) : (
+                  <li>
+                    «TP/SL» → режим <b>«Частичная позиция»</b>: стоп-лосс{" "}
+                    <b>{fmtPrice(s.initialStop)}</b> на весь объём, тейк-профит{" "}
+                    <b>{fmtPrice(s.tp1)}</b> на 50%
+                  </li>
+                )}
+                {!s.tpFull && (
+                  <li>
+                    «Скользящий стоп-ордер» → «+ Добавить»: коррекция{" "}
+                    <b>{fmtPrice(s.trailAbs)}</b> (режим «По сумме»), цена активации{" "}
+                    <b>{fmtPrice(s.activateAt)}</b>
+                  </li>
+                )}
               </ol>
               <p className="hint" style={{ margin: "6px 0 0" }}>
-                Половина фиксируется на {fmtPrice(s.tp1)} — после этого сделка в плюсе
-                при любом исходе. Если цена дойдёт до {fmtPrice(s.activateAt)}, остаток
-                подхватит трейлинг и биржа доведёт его сама.
+                {s.tpFull ? (
+                  <>
+                    Биржа сама закроет позицию по одной из двух цен. Тейк лучше поставить
+                    лимитным ордером: комиссия мейкера 0.01% вместо 0.055% по рынку —
+                    на коротком стопе эта разница заметна.
+                  </>
+                ) : (
+                  <>
+                    Половина фиксируется на {fmtPrice(s.tp1)} — после этого сделка в плюсе
+                    при любом исходе. Если цена дойдёт до {fmtPrice(s.activateAt)}, остаток
+                    подхватит трейлинг и биржа доведёт его сама.
+                  </>
+                )}
               </p>
             </div>
             <div className="hint">
               <div>• Вход: {s.reasons.entry}</div>
               <div>• Стоп: {s.reasons.stop}</div>
-              <div>• TP1: {s.reasons.tp1}</div>
-              <div>• Трейлинг: {s.reasons.trail}</div>
+              <div>• {s.tpFull ? "Тейк" : "TP1"}: {s.reasons.tp1}</div>
+              {!s.tpFull && <div>• Трейлинг: {s.reasons.trail}</div>}
             </div>
             <div className="trader-actions">
               <button className="btn sm red" disabled={busy} onClick={() => cancelSetup(s)}>

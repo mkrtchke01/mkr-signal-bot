@@ -4,6 +4,7 @@
 import { runBotTick } from "./bot";
 import type { BotConfig, BotScanner, BotTickReport } from "./bot";
 import { BREAKOUT_DEFAULTS, BREAKOUT_SLUG, scanBreakout } from "./botBreakout";
+import { BTC_INTRADAY_DEFAULTS, BTC_INTRADAY_SLUG, scanBtcIntraday } from "./botBtcIntraday";
 import { RELSTRENGTH_DEFAULTS, RELSTRENGTH_SLUG, scanRelStrength } from "./botRelStrength";
 
 export interface BotRuntime {
@@ -15,6 +16,7 @@ export interface BotRuntime {
 export const BOT_RUNTIMES: BotRuntime[] = [
   { slug: BREAKOUT_SLUG, defaults: BREAKOUT_DEFAULTS, scan: scanBreakout },
   { slug: RELSTRENGTH_SLUG, defaults: RELSTRENGTH_DEFAULTS, scan: scanRelStrength },
+  { slug: BTC_INTRADAY_SLUG, defaults: BTC_INTRADAY_DEFAULTS, scan: scanBtcIntraday },
 ];
 
 export function botRuntime(slug: string): BotRuntime | null {

@@ -108,11 +108,12 @@ export interface Signal {
 // Легаси старой лимиточной версии: PENDING — ждал налива лимитки,
 // EXPIRED — лимитка не налилась за TTL.
 // OPEN — в позиции; SL — стоп, до TP1 не дошли (−1R);
+// TP — цель взята целиком (у стратегий без частичной фиксации);
 // PART — TP1 взят, остаток выбит стопом: итог всё равно в плюсе;
 // TRAIL — остаток снят трейлингом; TIME — вышли по лимиту удержания;
 // CANCELLED — закрыт вручную.
 export type BotSetupStatus =
-  | "OPEN" | "SL" | "PART" | "TRAIL" | "TIME" | "CANCELLED";
+  | "OPEN" | "TP" | "SL" | "PART" | "TRAIL" | "TIME" | "CANCELLED";
 
 // Денежный план сделки: фиксированный риск в $, безопасное плечо, комиссии Bybit.
 // Считается один раз в момент сигнала и хранится вместе с сетапом — чтобы итог
@@ -132,6 +133,10 @@ export interface TradePlan {
     tp1: number;  // фиксация 50% на TP1
     part: number; // TP1 взят, остаток выбит стопом — худший исход после TP1
     sl: number;   // стоп без TP1 (= −riskUsd)
+    // выход всей позицией на цели — для стратегий без частичной фиксации.
+    // У планов, посчитанных до появления поля, его нет; читается только там,
+    // где tpFull = true, а такие сетапы всегда с новым планом.
+    tpFull: number;
   };
 }
 
@@ -150,6 +155,7 @@ export interface BotSetup {
   trailAbs: number;    // шаг трейлинга в цене («Коррекция» на Bybit)
   trailOn: boolean;    // трейлинг уже активирован
   bestPrice: number;   // лучшая цена с момента активации трейлинга
+  tpFull: boolean;     // на tp1 выходим целиком: ни половины, ни трейлинга
   reasons: { entry: string; stop: string; tp1: string; trail: string };
   regime: string;
   plan: TradePlan | null; // null только у сетапов, созданных до денежной модели
@@ -167,6 +173,7 @@ export interface BotSetup {
 export interface BotStats {
   total: number;
   open: number;
+  tp: number;        // цель взята целиком (стратегии без частичной фиксации)
   trail: number;     // остаток снят трейлингом
   part: number;      // TP1 взят, остаток по стопу — итог в плюсе
   sl: number;        // стоп, до TP1 не дошли

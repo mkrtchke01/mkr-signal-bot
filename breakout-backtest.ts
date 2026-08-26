@@ -316,7 +316,10 @@ function simulateTrade(s: SymState, e: Entry, v: Variant): Outcome {
   // Сопровождение ведёт боевой trackCandle — тот же, что крутится в боте.
   // Правило переноса стопа после TP1 (для сравнения вариантов) применяется
   // снаружи: оно вступает в силу со следующей свечи, как и в бою.
-  const levels = { direction: e.direction, tp1: e.tp1, activateAt, trailAbs: e.trailAbs };
+  const levels = {
+    direction: e.direction, tp1: e.tp1, activateAt, trailAbs: e.trailAbs,
+    tpFull: false, // пробойная стратегия фиксирует половину и ведёт остаток
+  };
   const st: TrackState = {
     stop: e.stop, best: e.entry, tp1Done: false, trailOn: false, moved: false,
   };

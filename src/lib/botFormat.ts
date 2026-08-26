@@ -29,6 +29,21 @@ function trailAtTp1(s: BotSetup): boolean {
 
 // Инструкция «поставил и забыл»: три экрана Bybit, дальше позиция ведёт себя сама
 export function bybitSetupLines(s: BotSetup): string[] {
+  // Без частичной фиксации всё проще: стоп и тейк на весь объём, и это всё
+  if (s.tpFull) {
+    return [
+      `⚙️ КАК ВЫСТАВИТЬ НА BYBIT (один раз, потом не трогаем)`,
+      ``,
+      `1) Вход по рынку${s.plan ? `, плечо ×${s.plan.leverage}, изолированная маржа` : ""}.`,
+      `2) В позиции открой «TP/SL» → на весь объём:`,
+      `   • Стоп-лосс: ${fmtPrice(s.initialStop)}`,
+      `   • Тейк-профит: ${fmtPrice(s.tp1)}`,
+      ``,
+      `Дальше ничего менять не надо: биржа сама закроет позицию по одной из цен.`,
+      `Тейк лучше поставить лимитным ордером — комиссия мейкера 0.01% вместо`,
+      `0.055% по рынку, на коротком стопе эта разница заметна.`,
+    ];
+  }
   return [
     `⚙️ КАК ВЫСТАВИТЬ НА BYBIT (один раз, потом не трогаем)`,
     ``,
@@ -63,17 +78,22 @@ export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
     `⚡ Вход по рынку: ${fmtPrice(s.entryPrice)} (текущая цена)`,
     `🛑 Стоп: ${fmtPrice(s.initialStop)}`
       + (p ? ` (${p.stopPct.toFixed(2)}% от входа)` : "") + money(p?.pnl.sl),
-    `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)} — фикс 50%`,
-    `📈 Остаток: трейлинг с шагом ${fmtPrice(s.trailAbs)}, `
-      + (trailAtTp1(s) ? `включается там же` : `включается на ${fmtPrice(s.activateAt)}`),
+    ...(s.tpFull
+      ? [`🎯 Тейк: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tpFull)} — выход целиком`]
+      : [
+        `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)} — фикс 50%`,
+        `📈 Остаток: трейлинг с шагом ${fmtPrice(s.trailAbs)}, `
+          + (trailAtTp1(s) ? `включается там же` : `включается на ${fmtPrice(s.activateAt)}`),
+      ]),
     ...(p ? [``, ...planLines(p)] : []),
     ``,
     ...bybitSetupLines(s),
     ``,
     `Почему вход: ${s.reasons.entry}`,
     `Почему стоп: ${s.reasons.stop}`,
-    `TP1: ${s.reasons.tp1}`,
-    `Трейлинг: ${s.reasons.trail}`,
+    ...(s.tpFull
+      ? [`Почему тейк: ${s.reasons.tp1}`]
+      : [`TP1: ${s.reasons.tp1}`, `Трейлинг: ${s.reasons.trail}`]),
     ``,
     style.note,
   ].join("\n");
@@ -105,18 +125,26 @@ export function botRearmCaption(s: BotSetup): string {
       + `${fmtPrice(s.initialStop)} прежние, под них уже посчитан объём.`,
     ``,
     `Обнови на бирже только цели:`,
-    `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма (${s.rr1}R)`,
-    `   • Скользящий стоп: коррекция ${fmtPrice(s.trailAbs)}, `
-      + `цена активации ${fmtPrice(s.activateAt)}`,
-    `   • Стоп-лосс ${fmtPrice(s.initialStop)} оставь как есть`,
-    ``,
-    `Если старый скользящий стоп-ордер уже стоит — удали его и добавь заново `
-      + `с новой ценой активации.`,
+    ...(s.tpFull
+      ? [
+        `   • Тейк-профит: ${fmtPrice(s.tp1)} — на весь объём (${s.rr1}R)`,
+        `   • Стоп-лосс ${fmtPrice(s.initialStop)} оставь как есть`,
+      ]
+      : [
+        `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма (${s.rr1}R)`,
+        `   • Скользящий стоп: коррекция ${fmtPrice(s.trailAbs)}, `
+          + `цена активации ${fmtPrice(s.activateAt)}`,
+        `   • Стоп-лосс ${fmtPrice(s.initialStop)} оставь как есть`,
+        ``,
+        `Если старый скользящий стоп-ордер уже стоит — удали его и добавь заново `
+          + `с новой ценой активации.`,
+      ]),
   ].join("\n");
 }
 
 export function botCloseCaption(s: BotSetup): string {
   const head = {
+    TP: `🎯 ТЕЙК ВЗЯТ`,
     TRAIL: `✅ ТРЕЙЛИНГ ЗАКРЫЛ ОСТАТОК`,
     PART: `🟩 ПЛЮС ПО ЧАСТИЧНОЙ ФИКСАЦИИ`,
     SL: `⛔ СТОП`,
@@ -135,7 +163,9 @@ export function botCloseCaption(s: BotSetup): string {
   if (s.closeReason) lines.push(s.closeReason);
   // Стоп и трейлинг срабатывают на бирже сами, а выход по времени — нет
   if (s.status === "TIME") {
-    lines.push(`❗ Закрой остаток по рынку руками и сними скользящий стоп-ордер.`);
+    lines.push(s.tpFull
+      ? `❗ Закрой позицию по рынку руками и сними стоп с тейком.`
+      : `❗ Закрой остаток по рынку руками и сними скользящий стоп-ордер.`);
   }
   return lines.join("\n");
 }

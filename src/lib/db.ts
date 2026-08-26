@@ -115,6 +115,9 @@ export function ensureSchema(): Promise<void> {
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS activate_at double precision`;
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
         trail_on boolean NOT NULL DEFAULT false`;
+      // Стратегии без частичной фиксации выходят на цели целиком
+      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
+        tp_full boolean NOT NULL DEFAULT false`;
       // Досыпаем значения сетапам, созданным до появления этих колонок:
       // без этого NULL превращается в 0 и трейлинг «активируется» сразу же.
       await sql`UPDATE bot_setups SET activate_at = tp1
@@ -386,6 +389,7 @@ function rowToBotSetup(r: Row): BotSetup {
     trailAbs: numOr(r.trail_abs, 0), // 0 = трейлинга у сетапа нет
     trailOn: Boolean(r.trail_on),
     bestPrice: numOr(r.best_price, entry),
+    tpFull: Boolean(r.tp_full),
     reasons: j(r.reasons),
     regime: r.regime,
     plan: r.plan ? j<TradePlan>(r.plan) : null,
@@ -428,15 +432,17 @@ export async function insertBotSetup(s: {
   entryPrice: number; stopPrice: number;
   tp1: number; rr1: number; activateAt: number; trailAbs: number;
   reasons: BotSetup["reasons"]; regime: string; plan: TradePlan;
+  tpFull?: boolean;
 }): Promise<BotSetup> {
   const sql = await db();
   const rows = await sql`INSERT INTO bot_setups
     (bot, symbol, direction, status, entry_price, stop_price, initial_stop,
-     tp1, rr1, activate_at, trail_abs, best_price, reasons, regime, plan,
+     tp1, rr1, activate_at, trail_abs, best_price, tp_full, reasons, regime, plan,
      filled_at, last_checked_ms)
     VALUES (${s.bot}, ${s.symbol}, ${s.direction}, 'OPEN', ${s.entryPrice},
             ${s.stopPrice}, ${s.stopPrice},
             ${s.tp1}, ${s.rr1}, ${s.activateAt}, ${s.trailAbs}, ${s.entryPrice},
+            ${s.tpFull ?? false},
             ${JSON.stringify(s.reasons)}::jsonb,
             ${s.regime}, ${JSON.stringify(s.plan)}::jsonb, now(), ${Date.now()})
     RETURNING *`;
@@ -520,6 +526,7 @@ export async function botStats(bot: string): Promise<BotStats> {
   const rows = await sql`SELECT
       count(*)::int AS total,
       count(*) FILTER (WHERE status = 'OPEN')::int AS open,
+      count(*) FILTER (WHERE status = 'TP')::int AS tp,
       count(*) FILTER (WHERE status = 'TRAIL')::int AS trail,
       count(*) FILTER (WHERE status = 'PART')::int AS part,
       count(*) FILTER (WHERE status = 'SL')::int AS sl,
@@ -531,7 +538,7 @@ export async function botStats(bot: string): Promise<BotStats> {
     FROM bot_setups WHERE bot = ${bot}`;
   const r = rows[0];
   return {
-    total: r.total, open: r.open, trail: r.trail, part: r.part, sl: r.sl,
+    total: r.total, open: r.open, tp: r.tp, trail: r.trail, part: r.part, sl: r.sl,
     time: r.time, cancelled: r.cancelled, tp1Reached: r.tp1_reached,
     profitPct: r.profit,
     profitUsd: Math.round(r.profit_usd * 100) / 100,
