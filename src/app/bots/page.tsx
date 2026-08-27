@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { fmtPct, fmtUsd } from "@/lib/format";
+import { fmtUsd } from "@/lib/format";
 import type { BotStats } from "@/lib/types";
 
 interface BotListItem {
@@ -80,18 +80,13 @@ export default function BotsPage() {
               </div>
               <p className="hint" style={{ margin: 0 }}>{b.short}</p>
               <div className="chips">
-                <span className="chip">💼 {closed} сделок</span>
-                <span className="chip">🎯 {s.tp1Reached} дошли до цели</span>
-                <span className="chip">✅ {s.tp} по тейку</span>
-                <span className="chip">✅ {s.trail} снял трейлинг</span>
-                <span className="chip">🟩 {s.part} плюс по TP1</span>
-                <span className="chip">⛔ {s.sl} по стопу</span>
-                <span className="chip">⌛ {s.time} по времени</span>
-                <span className="chip">🔄 {s.open} активных</span>
+                <span className="chip">💼 Сделок: {closed}</span>
+                <span className="chip">✅ TP: {s.tp + s.trail + s.part}</span>
+                <span className="chip">⛔ SL: {s.sl}</span>
+                <span className="chip">🔄 Активных: {s.open}</span>
                 <span className="chip">
-                  {s.profitUsd >= 0 ? "📈" : "📉"} {fmtUsd(s.profitUsd)}
+                  {s.profitUsd >= 0 ? "📈" : "📉"} PnL: {fmtUsd(s.profitUsd)}
                 </span>
-                <span className="chip">〽️ {fmtPct(s.profitPct)} движения</span>
               </div>
             </div>
           </Link>
