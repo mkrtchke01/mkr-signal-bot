@@ -8,7 +8,6 @@
 // отдельным чистым модулем, чтобы бэктесты гоняли ровно тот же код.
 // Если за maxHoldHours не сработало ничего — выходим по рынку.
 
-import { fetchKlines } from "./bybit";
 import {
   activeBotSetups, closeBotSetup, getBotSetup, getBotState,
   insertBotSetup, markBotTp1, setBotState, touchBotSetup, updateBotTrail,
@@ -16,7 +15,9 @@ import {
 import { botCloseCaption, botTp1Caption } from "./botFormat";
 import { broadcastText } from "./telegram";
 import { buildPlan, realizedPnl } from "./money";
+import { BYBIT } from "./market";
 import { trackCandle } from "./track";
+import type { MarketData } from "./market";
 import type { TrackState } from "./track";
 import type { BotSetup } from "./types";
 
@@ -60,14 +61,14 @@ async function broadcastClose(id: string, report: BotTickReport): Promise<void> 
 
 // Сопровождение одного сетапа по минутным свечам с момента прошлой проверки.
 async function monitorSetup(
-  s: BotSetup, cfg: BotConfig, report: BotTickReport,
+  s: BotSetup, cfg: BotConfig, market: MarketData, report: BotTickReport,
 ): Promise<void> {
   const isLong = s.direction === "LONG";
   const move = (p: number) => (isLong ? p / s.entryPrice - 1 : 1 - p / s.entryPrice);
   const pct = (v: number) => Math.round(v * 10000) / 100;
   const now = Date.now();
 
-  // Итог сделки: движение цены + деньги по плану сетапа (плечо и комиссии Bybit).
+  // Итог сделки: движение цены + деньги по плану сетапа (плечо и комиссии биржи).
   // При взятом TP1 половина уже зафиксирована по TP1, остаток выходит по exit.
   const result = (exit: number, tp1Taken: boolean) => ({
     exitPrice: exit,
@@ -78,7 +79,8 @@ async function monitorSetup(
   });
 
   const since = Math.max(s.lastCheckedMs || 0, new Date(s.createdAt).getTime());
-  const candles = await fetchKlines(s.symbol, "1m", { startTime: since - 60_000, limit: 1000 });
+  const candles = await market.fetchKlines(s.symbol, "1m",
+    { startTime: since - 60_000, limit: 1000 });
 
   const st: TrackState = {
     stop: s.stopPrice, best: s.bestPrice,
@@ -132,8 +134,10 @@ async function monitorSetup(
 }
 
 // Один тик конкретного бота: сопровождение + (если включён и подошёл срок) скан.
+// Свечи для сопровождения берём на бирже этого бота: у ботов на BingX и цена,
+// и минутные свечи свои.
 export async function runBotTick(
-  slug: string, defaults: BotConfig, scan: BotScanner,
+  slug: string, defaults: BotConfig, scan: BotScanner, market: MarketData,
   opts: { forceScan?: boolean } = {},
 ): Promise<BotTickReport> {
   const report = emptyReport();
@@ -143,7 +147,7 @@ export async function runBotTick(
   report.monitored = active.length;
   for (const s of active) {
     try {
-      await monitorSetup(s, cfg, report);
+      await monitorSetup(s, cfg, market, report);
     } catch (e) {
       report.errors.push(`setup ${s.symbol}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -168,8 +172,11 @@ export async function publishSetup(s: {
   entry: number; stop: number; tp1: number; rr1: number;
   activateAt: number; trailAbs: number; tpFull?: boolean;
   reasons: BotSetup["reasons"]; regime: string;
+  // Комиссия биржи бота: входит в риск $3, поэтому определяет объём позиции.
+  // По умолчанию Bybit — под него посчитаны первые боты.
+  feeRate?: number;
 }, report: BotTickReport, caption: (x: BotSetup) => string): Promise<boolean> {
-  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1);
+  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BYBIT.takerFee);
   if (!plan) {
     report.errors.push(`plan ${s.symbol}: не удалось рассчитать объём и плечо`);
     return false;

@@ -91,3 +91,31 @@ export function macdHistogram(
   }
   return out;
 }
+
+/**
+ * Коэффициент корреляции Пирсона двух рядов одинаковой длины — по всему окну.
+ * Совпадает с индикатором TradingView «CC» (Correlation Coefficient) на тех же
+ * входах: сравниваются сами цены закрытия, а не их приращения.
+ * Возвращает NaN, если данных мало или один из рядов не менялся.
+ */
+export function pearson(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  if (n < 2) return NaN;
+  let sa = 0;
+  let sb = 0;
+  for (let i = 0; i < n; i++) { sa += a[i]; sb += b[i]; }
+  const ma = sa / n;
+  const mb = sb / n;
+  let cov = 0;
+  let va = 0;
+  let vb = 0;
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - ma;
+    const db = b[i] - mb;
+    cov += da * db;
+    va += da * da;
+    vb += db * db;
+  }
+  if (!(va > 0) || !(vb > 0)) return NaN;
+  return cov / Math.sqrt(va * vb);
+}

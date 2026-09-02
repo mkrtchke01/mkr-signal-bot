@@ -1,23 +1,28 @@
-// Тексты телеграм-сообщений бота. Сигнал содержит готовую инструкцию для Bybit:
+// Тексты телеграм-сообщений бота. Сигнал содержит готовую инструкцию для биржи:
 // всё выставляется один раз сразу после входа и дальше не трогается.
+// Биржа у каждого бота своя — она приходит в CaptionStyle вместе с шапкой.
 
 import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "./format";
+import { BYBIT } from "./market";
+import type { MarketData } from "./market";
 import type { BotSetup, TradePlan } from "./types";
+
+const pct3 = (v: number) => `${(v * 100).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}%`;
 
 function dirBadge(s: BotSetup): string {
   return s.direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
 }
 
 // Блок с плечом, объёмом и ликвидацией — то, что нужно ввести на бирже
-function planLines(p: TradePlan): string[] {
+function planLines(p: TradePlan, ex: MarketData): string[] {
   const gap = p.stopPct > 0 ? (p.liqPct / p.stopPct).toFixed(1) : "—";
   return [
     `💵 Плечо ×${p.leverage} (изолированная) · маржа ${fmtMoney(p.margin)} `
     + `· объём ${fmtMoney(p.notional)}`,
     `🧯 Ликвидация ~${fmtPrice(p.liqPrice)} (${p.liqPct.toFixed(2)}% от входа) — `
     + `в ${gap} раза дальше стопа, до неё дело не дойдёт`,
-    `🧾 Риск ${fmtMoney(p.riskUsd)} на сделку — комиссия Bybit `
-    + `(тейкер ${(p.feeRate * 100).toFixed(3)}% × 2 ≈ ${fmtMoney(p.feeUsd)}) уже учтена`,
+    `🧾 Риск ${fmtMoney(p.riskUsd)} на сделку — комиссия ${ex.name} `
+    + `(тейкер ${pct3(p.feeRate)} × 2 ≈ ${fmtMoney(p.feeUsd)}) уже учтена`,
   ];
 }
 
@@ -27,12 +32,12 @@ function trailAtTp1(s: BotSetup): boolean {
   return Math.abs(s.activateAt - s.tp1) < 1e-9;
 }
 
-// Инструкция «поставил и забыл»: три экрана Bybit, дальше позиция ведёт себя сама
-export function bybitSetupLines(s: BotSetup): string[] {
+// Инструкция «поставил и забыл»: три экрана биржи, дальше позиция ведёт себя сама
+export function exchangeSetupLines(s: BotSetup, ex: MarketData): string[] {
   // Без частичной фиксации всё проще: стоп и тейк на весь объём, и это всё
   if (s.tpFull) {
     return [
-      `⚙️ КАК ВЫСТАВИТЬ НА BYBIT (один раз, потом не трогаем)`,
+      `⚙️ КАК ВЫСТАВИТЬ НА ${ex.name.toUpperCase()} (один раз, потом не трогаем)`,
       ``,
       `1) Вход по рынку${s.plan ? `, плечо ×${s.plan.leverage}, изолированная маржа` : ""}.`,
       `2) В позиции открой «TP/SL» → на весь объём:`,
@@ -40,12 +45,12 @@ export function bybitSetupLines(s: BotSetup): string[] {
       `   • Тейк-профит: ${fmtPrice(s.tp1)}`,
       ``,
       `Дальше ничего менять не надо: биржа сама закроет позицию по одной из цен.`,
-      `Тейк лучше поставить лимитным ордером — комиссия мейкера 0.01% вместо`,
-      `0.055% по рынку, на коротком стопе эта разница заметна.`,
+      `Тейк лучше поставить лимитным ордером — комиссия мейкера ${pct3(ex.makerFee)}`,
+      `вместо ${pct3(ex.takerFee)} по рынку, на коротком стопе эта разница заметна.`,
     ];
   }
   return [
-    `⚙️ КАК ВЫСТАВИТЬ НА BYBIT (один раз, потом не трогаем)`,
+    `⚙️ КАК ВЫСТАВИТЬ НА ${ex.name.toUpperCase()} (один раз, потом не трогаем)`,
     ``,
     `1) Вход по рынку${s.plan ? `, плечо ×${s.plan.leverage}, изолированная маржа` : ""}.`,
     `2) В позиции открой «TP/SL» → режим «Частичная позиция»:`,
@@ -65,12 +70,14 @@ export function bybitSetupLines(s: BotSetup): string[] {
 }
 
 export interface CaptionStyle {
-  head: string;  // шапка сигнала: у каждого бота своя
-  note: string;  // предупреждение в конце — про характер стратегии
+  head: string;            // шапка сигнала: у каждого бота своя
+  note: string;            // предупреждение в конце — про характер стратегии
+  exchange?: MarketData;   // где торгуем; по умолчанию Bybit
 }
 
 export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
   const p = s.plan;
+  const ex = style.exchange ?? BYBIT;
   const money = (v: number | undefined) => (v === undefined ? "" : ` → ${fmtUsd(v)}`);
   return [
     `${style.head} ${dirBadge(s)} #${s.symbol} — ВХОД СЕЙЧАС`,
@@ -85,9 +92,9 @@ export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
         `📈 Остаток: трейлинг с шагом ${fmtPrice(s.trailAbs)}, `
           + (trailAtTp1(s) ? `включается там же` : `включается на ${fmtPrice(s.activateAt)}`),
       ]),
-    ...(p ? [``, ...planLines(p)] : []),
+    ...(p ? [``, ...planLines(p, ex)] : []),
     ``,
-    ...bybitSetupLines(s),
+    ...exchangeSetupLines(s, ex),
     ``,
     `Почему вход: ${s.reasons.entry}`,
     `Почему стоп: ${s.reasons.stop}`,

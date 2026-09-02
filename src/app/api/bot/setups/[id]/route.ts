@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { lastPrice } from "@/lib/bybit";
+import { botRuntime } from "@/lib/botRegistry";
 import { closeBotSetup, getBotSetup, reopenBotSetup } from "@/lib/db";
 import { botCloseCaption, botRearmCaption } from "@/lib/botFormat";
+import { BYBIT } from "@/lib/market";
 import { buildPlan, realizedPnl } from "@/lib/money";
 import { BTC_INTRADAY_SLUG } from "@/lib/botBtcIntraday";
+import { TRENDLINE_SLUG } from "@/lib/botTrendline";
 import { levelsFromStop, TP1_R } from "@/lib/strategyBreakout";
 import {
   levelsFromStop as intradayLevels, TP_R as INTRADAY_TP_R,
 } from "@/lib/strategyBtcIntraday";
+import { levelsFromStop as trendlineLevels } from "@/lib/strategyTrendline";
 import { broadcastText } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
+
+// Цену и комиссию берём на бирже того бота, который породил сетап
+const marketOf = (bot: string) => botRuntime(bot)?.market ?? BYBIT;
 
 // Ручное закрытие позиции по текущей рыночной цене
 export async function DELETE(
@@ -24,7 +30,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Сетап уже закрыт" }, { status: 400 });
     }
 
-    const price = await lastPrice(s.symbol);
+    const price = await marketOf(s.bot).lastPrice(s.symbol);
     const isLong = s.direction === "LONG";
     const move = (p: number) => (isLong ? p / s.entryPrice - 1 : 1 - p / s.entryPrice);
     // при взятом TP1 половина уже зафиксирована по нему, остаток идёт по рынку
@@ -64,15 +70,21 @@ export async function POST(
     }
 
     // Цели пересчитывает та стратегия, которая сетап породила: у каждого бота
-    // свои R до цели и свои параметры трейлинга
-    const lv = s.bot === BTC_INTRADAY_SLUG
-      ? intradayLevels(s.direction, s.entryPrice, s.initialStop)
-      : levelsFromStop(s.direction, s.entryPrice, s.initialStop);
+    // свои R до цели и свои параметры трейлинга. У «Пробоя наклонки» цель —
+    // основание линии, заново его не построить, зато сохранён rr самого сетапа.
+    const lv = s.bot === TRENDLINE_SLUG
+      ? trendlineLevels(s.direction, s.entryPrice, s.initialStop, s.rr1)
+      : s.bot === BTC_INTRADAY_SLUG
+        ? intradayLevels(s.direction, s.entryPrice, s.initialStop)
+        : levelsFromStop(s.direction, s.entryPrice, s.initialStop);
     if (!lv || !(lv.tp1 > 0)) {
       return NextResponse.json({ error: "Не удалось пересчитать уровни" }, { status: 400 });
     }
-    const rr1 = s.bot === BTC_INTRADAY_SLUG ? INTRADAY_TP_R : TP1_R;
-    const plan = buildPlan(s.direction, s.entryPrice, s.initialStop, lv.tp1);
+    const rr1 = s.bot === TRENDLINE_SLUG
+      ? s.rr1
+      : s.bot === BTC_INTRADAY_SLUG ? INTRADAY_TP_R : TP1_R;
+    const plan = buildPlan(s.direction, s.entryPrice, s.initialStop, lv.tp1,
+      marketOf(s.bot).takerFee);
     if (!plan) {
       return NextResponse.json({ error: "Не удалось пересчитать план" }, { status: 400 });
     }

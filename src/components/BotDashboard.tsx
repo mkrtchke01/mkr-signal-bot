@@ -45,9 +45,16 @@ function fmtTime(iso: string | null): string {
   });
 }
 
+// Биржа бота: подписи в инструкции «как выставить». По умолчанию Bybit —
+// на нём работают все боты, кроме «Пробоя наклонки».
+interface ExchangeLabels { name: string; maker: string; taker: string }
+const BYBIT_LABELS: ExchangeLabels = { name: "Bybit", maker: "0.01%", taker: "0.055%" };
+
 export default function BotDashboard({
-  slug, title, intro,
-}: { slug: string; title: string; intro: React.ReactNode }) {
+  slug, title, intro, exchange = BYBIT_LABELS,
+}: {
+  slug: string; title: string; intro: React.ReactNode; exchange?: ExchangeLabels;
+}) {
   const [data, setData] = useState<BotData | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -311,7 +318,9 @@ export default function BotDashboard({
               </div>
             )}
             <div className="card" style={{ margin: "8px 0", background: "rgba(74,158,255,.06)" }}>
-              <b style={{ fontSize: 14 }}>⚙️ Как выставить на Bybit — один раз, потом не трогаем</b>
+              <b style={{ fontSize: 14 }}>
+                ⚙️ Как выставить на {exchange.name} — один раз, потом не трогаем
+              </b>
               <ol className="hint" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                 <li>
                   Вход по рынку
@@ -341,8 +350,8 @@ export default function BotDashboard({
                 {s.tpFull ? (
                   <>
                     Биржа сама закроет позицию по одной из двух цен. Тейк лучше поставить
-                    лимитным ордером: комиссия мейкера 0.01% вместо 0.055% по рынку —
-                    на коротком стопе эта разница заметна.
+                    лимитным ордером: комиссия мейкера {exchange.maker} вместо{" "}
+                    {exchange.taker} по рынку — на коротком стопе эта разница заметна.
                   </>
                 ) : (
                   <>
