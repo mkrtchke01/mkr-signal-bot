@@ -168,6 +168,11 @@ export interface BotSetup {
   profitUsd: number | null; // фактический результат в $ с плечом и комиссиями
   closeReason: string | null;
   lastCheckedMs: number;
+  // Только у DEX-мемкоин бота: адреса для обновления цены и ссылки на график.
+  // У фьючерсных ботов — null.
+  chain?: string | null;
+  tokenAddress?: string | null;
+  poolAddress?: string | null;
 }
 
 export interface BotStats {

@@ -5,6 +5,7 @@ import { runBotTick } from "./bot";
 import type { BotConfig, BotScanner, BotTickReport } from "./bot";
 import { BREAKOUT_DEFAULTS, BREAKOUT_SLUG, scanBreakout } from "./botBreakout";
 import { BTC_INTRADAY_DEFAULTS, BTC_INTRADAY_SLUG, scanBtcIntraday } from "./botBtcIntraday";
+import { PREPUMP_SLUG, tickPrepump } from "./botPrepump";
 import { RELSTRENGTH_DEFAULTS, RELSTRENGTH_SLUG, scanRelStrength } from "./botRelStrength";
 import { TRENDLINE_DEFAULTS, TRENDLINE_SLUG, scanTrendline } from "./botTrendline";
 import { BINGX, BYBIT } from "./market";
@@ -54,6 +55,13 @@ export async function tickAllBots(): Promise<Record<string, unknown>> {
     } catch (e) {
       out[rt.slug] = { error: e instanceof Error ? e.message : String(e) };
     }
+  }
+  // Мемкоин-бот живёт не в BOT_RUNTIMES (его данные и сопровождение — не с биржи,
+  // а с GeckoTerminal), поэтому тикает отдельно, но в том же цикле крона.
+  try {
+    out[PREPUMP_SLUG] = await tickPrepump();
+  } catch (e) {
+    out[PREPUMP_SLUG] = { error: e instanceof Error ? e.message : String(e) };
   }
   return out;
 }
