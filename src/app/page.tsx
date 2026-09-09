@@ -78,7 +78,7 @@ export default function Dashboard() {
                 <div className="l">профит (×плечо)</div>
               </div>
             </div>
-            <div className="trader-actions">
+            <div className="actions">
               <button
                 className={`btn sm ${t.status === "RUNNING" ? "" : "green"}`}
                 onClick={() => toggle(t)}

@@ -60,7 +60,7 @@ export default function ChannelsPage() {
               {c.active ? "активен" : "выключен"}
             </span>
           </div>
-          <div className="trader-actions">
+          <div className="actions">
             <button className="btn sm" onClick={() => toggle(c)}>
               {c.active ? "Выключить" : "Включить"}
             </button>

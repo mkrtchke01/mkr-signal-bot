@@ -81,7 +81,7 @@ export default function TraderPage() {
         </span>
       </div>
 
-      <div className="trader-actions" style={{ marginBottom: 16 }}>
+      <div className="actions" style={{ marginBottom: 16 }}>
         <button className={`btn ${t.status === "RUNNING" ? "" : "green"}`} onClick={toggle}>
           {t.status === "RUNNING" ? "⏸ Пауза" : "▶ Запустить"}
         </button>
@@ -119,7 +119,7 @@ export default function TraderPage() {
 
       <div className="card">
         <h2>Бэктест</h2>
-        <div className="trader-actions">
+        <div className="actions">
           <button className="btn" disabled={btLoading !== null} onClick={() => backtest(7)}>
             {btLoading === 7 ? "Считаю…" : "За неделю"}
           </button>

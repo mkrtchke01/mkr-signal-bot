@@ -155,11 +155,14 @@ export default function BotDashboard({
 
   return (
     <main>
-      <p style={{ margin: "0 0 6px" }}>
+      <p style={{ margin: "0 0 8px" }}>
         <Link href="/bots" className="muted">← Кастомные боты</Link>
       </p>
       <h1>{title}</h1>
-      {intro}
+      <details className="prose" open>
+        <summary>Как работает стратегия</summary>
+        <div className="prose-body hint">{intro}</div>
+      </details>
 
       <div className="card">
         <div className="trader-head">
@@ -182,7 +185,7 @@ export default function BotDashboard({
             {new Date(regime.updatedMs).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}.
           </p>
         )}
-        <div className="trader-actions" style={{ marginTop: 10 }}>
+        <div className="actions" style={{ marginTop: 10 }}>
           <button
             className={`btn sm ${config.enabled ? "" : "green"}`}
             disabled={busy}
@@ -197,23 +200,21 @@ export default function BotDashboard({
           >
             🔍 Сканировать сейчас
           </button>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
+          <label className="inline-field">
             макс. позиций
             <select
               value={config.maxActive}
               disabled={busy}
-              style={{ width: 70 }}
               onChange={(e) => post({ action: "config", maxActive: Number(e.target.value) })}
             >
               {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
+          <label className="inline-field">
             скан каждые
             <select
               value={config.scanMinutes}
               disabled={busy}
-              style={{ width: 90 }}
               onChange={(e) => post({ action: "config", scanMinutes: Number(e.target.value) })}
             >
               {[1, 5, 15, 30, 60, 120, 240].map((n) => <option key={n} value={n}>{n} мин</option>)}
@@ -243,7 +244,7 @@ export default function BotDashboard({
             <div className="l">движение цены</div>
           </div>
         </div>
-        <div className="trader-actions" style={{ marginTop: 10 }}>
+        <div className="actions" style={{ marginTop: 10 }}>
           <button className="btn sm red" disabled={busy || !stats.total} onClick={resetHistory}>
             🧹 Сбросить историю
           </button>
@@ -276,7 +277,7 @@ export default function BotDashboard({
               {s.trailOn && (
                 <span className="badge tp">трейлинг ведёт от {fmtPrice(s.bestPrice)}</span>
               )}
-              <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
+              <span className="meta-right">
                 {fmtTime(s.createdAt)} · осталось {left}
               </span>
             </div>
@@ -307,24 +308,39 @@ export default function BotDashboard({
             </div>
             {s.plan && (
               <div className="chips" style={{ marginBottom: 4 }}>
-                <span className="chip">💵 плечо ×{s.plan.leverage}</span>
-                <span className="chip">🔒 маржа {fmtMoney(s.plan.margin)}</span>
-                <span className="chip">📦 объём {fmtMoney(s.plan.notional)}</span>
-                <span className="chip">
-                  🧯 ликвидация {fmtPrice(s.plan.liqPrice)} ({s.plan.liqPct.toFixed(2)}%
-                  {" vs "}стоп {s.plan.stopPct.toFixed(2)}%)
+                <span className="chip static">
+                  <span className="k">плечо</span>
+                  <span className="v">×{s.plan.leverage}</span>
                 </span>
-                <span className="chip">🧾 комиссия ≈ {fmtMoney(s.plan.feeUsd)}</span>
+                <span className="chip static">
+                  <span className="k">маржа</span>
+                  <span className="v">{fmtMoney(s.plan.margin)}</span>
+                </span>
+                <span className="chip static">
+                  <span className="k">объём</span>
+                  <span className="v">{fmtMoney(s.plan.notional)}</span>
+                </span>
+                <span className="chip static">
+                  <span className="k">ликвидация</span>
+                  <span className="v">{fmtPrice(s.plan.liqPrice)}</span>
+                  <span className="k">
+                    {s.plan.liqPct.toFixed(2)}% vs стоп {s.plan.stopPct.toFixed(2)}%
+                  </span>
+                </span>
+                <span className="chip static">
+                  <span className="k">комиссия ≈</span>
+                  <span className="v">{fmtMoney(s.plan.feeUsd)}</span>
+                </span>
               </div>
             )}
-            <div className="card" style={{ margin: "8px 0", background: "rgba(74,158,255,.06)" }}>
-              <b style={{ fontSize: 14 }}>
-                ⚙️ Как выставить на {exchange.name} — один раз, потом не трогаем
+            <div className="card-inner brand">
+              <b style={{ fontSize: 14, color: "var(--c-1)" }}>
+                Как выставить на {exchange.name} — один раз, потом не трогаем
               </b>
               <ol className="hint" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                 <li>
                   Вход по рынку
-                  {s.plan && <> , плечо ×{s.plan.leverage}, изолированная маржа, объём {fmtMoney(s.plan.notional)}</>}
+                  {s.plan && <>, плечо ×{s.plan.leverage}, изолированная маржа, объём {fmtMoney(s.plan.notional)}</>}
                 </li>
                 {s.tpFull ? (
                   <li>
@@ -368,7 +384,7 @@ export default function BotDashboard({
               <div>• {s.tpFull ? "Тейк" : "TP1"}: {s.reasons.tp1}</div>
               {!s.tpFull && <div>• Трейлинг: {s.reasons.trail}</div>}
             </div>
-            <div className="trader-actions">
+            <div className="actions">
               <button className="btn sm red" disabled={busy} onClick={() => cancelSetup(s)}>
                 Закрыть по рынку
               </button>

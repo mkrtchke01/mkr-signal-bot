@@ -372,7 +372,7 @@ export default function TraderForm({ initial }: Props) {
       })()}
 
       {error && <p className="error">{error}</p>}
-      <div className="row" style={{ marginTop: 16 }}>
+      <div className="actions" style={{ marginTop: 16 }}>
         {step > 0 && <button className="btn" onClick={() => { setError(""); setStep(step - 1); }}>← Назад</button>}
         <button className="btn primary" disabled={saving} onClick={next}>
           {step < 3 ? "Далее →" : saving ? "Сохраняю…" : initial ? "Сохранить изменения" : "Создать трейдера"}

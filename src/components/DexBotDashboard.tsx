@@ -114,11 +114,14 @@ export default function DexBotDashboard({
 
   return (
     <main>
-      <p style={{ margin: "0 0 6px" }}>
+      <p style={{ margin: "0 0 8px" }}>
         <Link href="/bots" className="muted">← Кастомные боты</Link>
       </p>
       <h1>{title}</h1>
-      {intro}
+      <details className="prose" open>
+        <summary>Как работает стратегия</summary>
+        <div className="prose-body hint">{intro}</div>
+      </details>
 
       <div className="card">
         <div className="trader-head">
@@ -128,7 +131,7 @@ export default function DexBotDashboard({
           </span>
           <span className="badge time">в наблюдении: {watchCount}</span>
         </div>
-        <div className="trader-actions" style={{ marginTop: 10 }}>
+        <div className="actions" style={{ marginTop: 10 }}>
           <button
             className={`btn sm ${config.enabled ? "" : "green"}`}
             disabled={busy}
@@ -143,34 +146,31 @@ export default function DexBotDashboard({
           >
             🔍 Сканировать сейчас
           </button>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
+          <label className="inline-field">
             макс. позиций
             <select
               value={config.maxActive}
               disabled={busy}
-              style={{ width: 70 }}
               onChange={(e) => post({ action: "config", maxActive: Number(e.target.value) })}
             >
               {[1, 2, 3, 5, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
+          <label className="inline-field">
             скан каждые
             <select
               value={config.scanMinutes}
               disabled={busy}
-              style={{ width: 90 }}
               onChange={(e) => post({ action: "config", scanMinutes: Number(e.target.value) })}
             >
               {[2, 3, 5, 10, 15, 30].map((n) => <option key={n} value={n}>{n} мин</option>)}
             </select>
           </label>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, margin: 0 }}>
+          <label className="inline-field">
             держим до
             <select
               value={config.maxHoldHours}
               disabled={busy}
-              style={{ width: 80 }}
               onChange={(e) => post({ action: "config", maxHoldHours: Number(e.target.value) })}
             >
               {[6, 12, 24, 48, 72].map((n) => <option key={n} value={n}>{n} ч</option>)}
@@ -195,7 +195,7 @@ export default function DexBotDashboard({
             <div className="l">сумма движений</div>
           </div>
         </div>
-        <div className="trader-actions" style={{ marginTop: 10 }}>
+        <div className="actions" style={{ marginTop: 10 }}>
           <button className="btn sm red" disabled={busy || !stats.total} onClick={resetHistory}>
             🧹 Сбросить историю
           </button>
@@ -223,7 +223,7 @@ export default function DexBotDashboard({
               <span className="badge long">{s.chain}</span>
               {s.tp1Done && <span className="badge tp">+50% пройдено</span>}
               {s.trailOn && <span className="badge tp">цель +100% взята</span>}
-              <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
+              <span className="meta-right">
                 {fmtTime(s.createdAt)}
               </span>
             </div>
@@ -242,7 +242,7 @@ export default function DexBotDashboard({
               <div>• Провал: {s.reasons.stop}</div>
             </div>
             {url && (
-              <div className="trader-actions">
+              <div className="actions">
                 <a className="btn sm" href={url} target="_blank" rel="noreferrer">📈 График на DexScreener</a>
               </div>
             )}

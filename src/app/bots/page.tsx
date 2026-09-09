@@ -51,47 +51,54 @@ export default function BotsPage() {
 
   return (
     <main>
-      <h1>🤖 Кастомные боты</h1>
-      <p className="hint">
+      <h1>Кастомные боты</h1>
+      <p className="hint" style={{ maxWidth: "70ch" }}>
         Стратегии, которые нельзя собрать в конструкторе: многотаймфреймовый
         анализ, уровневые входы, сопровождение позиции. Каждый бот сигналит
         в подключённые Telegram-каналы. Открой бота, чтобы увидеть активные
         сетапы, настройки и полную историю.
       </p>
-      {bots.map((b) => {
-        const s = b.stats;
-        const closed = s.total - s.open;
-        return (
-          <Link
-            key={b.slug}
-            href={`/bots/${b.slug}`}
-            style={{ textDecoration: "none", color: "inherit", display: "block" }}
-          >
-            <div className="card trader-card" style={{ cursor: "pointer" }}>
-              <div className="trader-head">
-                <span className="name">{b.name}</span>
-                <span className={`badge ${b.enabled ? "running" : "paused"}`}>
-                  {b.enabled ? "работает" : "на паузе"}
-                </span>
-                <span className="muted" style={{ fontSize: 13 }}>
-                  {runLabel(b.enabled, b.enabledAt)}
-                </span>
-                <span className="muted" style={{ marginLeft: "auto" }}>→</span>
+      <div style={{ marginTop: 20 }}>
+        {bots.map((b) => {
+          const s = b.stats;
+          const closed = s.total - s.open;
+          return (
+            <Link key={b.slug} href={`/bots/${b.slug}`} className="card-link">
+              <div className="card trader-card">
+                <div className="trader-head">
+                  <span className="name">{b.name}</span>
+                  <span className={`badge ${b.enabled ? "running" : "paused"}`}>
+                    {b.enabled ? "работает" : "на паузе"}
+                  </span>
+                  <span className="meta-right">{runLabel(b.enabled, b.enabledAt)}</span>
+                </div>
+                <p className="hint" style={{ margin: 0, maxWidth: "70ch" }}>{b.short}</p>
+                <div className="chips">
+                  <span className="chip static">
+                    <span className="k">Сделок</span> <span className="v">{closed}</span>
+                  </span>
+                  <span className="chip static">
+                    <span className="k">TP</span>
+                    <span className="v pos">{s.tp + s.trail + s.part}</span>
+                  </span>
+                  <span className="chip static">
+                    <span className="k">SL</span> <span className="v neg">{s.sl}</span>
+                  </span>
+                  <span className="chip static">
+                    <span className="k">Активных</span> <span className="v">{s.open}</span>
+                  </span>
+                  <span className="chip static">
+                    <span className="k">PnL</span>
+                    <span className={`v ${s.profitUsd >= 0 ? "pos" : "neg"}`}>
+                      {fmtUsd(s.profitUsd)}
+                    </span>
+                  </span>
+                </div>
               </div>
-              <p className="hint" style={{ margin: 0 }}>{b.short}</p>
-              <div className="chips">
-                <span className="chip">💼 Сделок: {closed}</span>
-                <span className="chip">✅ TP: {s.tp + s.trail + s.part}</span>
-                <span className="chip">⛔ SL: {s.sl}</span>
-                <span className="chip">🔄 Активных: {s.open}</span>
-                <span className="chip">
-                  {s.profitUsd >= 0 ? "📈" : "📉"} PnL: {fmtUsd(s.profitUsd)}
-                </span>
-              </div>
-            </div>
-          </Link>
-        );
-      })}
+            </Link>
+          );
+        })}
+      </div>
     </main>
   );
 }
