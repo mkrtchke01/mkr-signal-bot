@@ -11,7 +11,7 @@ import { BYBIT } from "./market";
 import { entryMs, exitMs, replayTrade } from "./replay";
 import { TF_MS, TIMEFRAMES } from "./types";
 import type { Extreme, StopStep, TradeEvent } from "./replay";
-import type { BotSetup, TF } from "./types";
+import type { BotSetup, Candle, TF } from "./types";
 
 const TARGET_BARS = 240;
 
@@ -77,6 +77,33 @@ function dexLevels(s: BotSetup): ChartLevel[] {
   return out;
 }
 
+// Где торгует бот: мемкоины — на DEX через GeckoTerminal, остальные — на бирже
+export function tradeExchange(s: BotSetup): string {
+  if (s.chain && s.poolAddress) return "GeckoTerminal";
+  return (botRuntime(s.bot)?.market ?? BYBIT).name;
+}
+
+/**
+ * Свечи символа сделки за произвольное окно. Отдельная функция, потому что
+ * график можно листать: клиент догружает соседние куски тем же таймфреймом.
+ * Границы обязательно целые — дробные миллисекунды биржа молча игнорирует
+ * и вместо окна отдаёт свежий кусок истории на весь лимит.
+ */
+export async function fetchTradeCandles(
+  s: BotSetup, tf: TF, from: number, to: number,
+): Promise<Candle[]> {
+  const start = Math.floor(from);
+  const end = Math.ceil(to);
+  const bars = Math.min(Math.ceil((end - start) / TF_MS[tf]) + 2, 1000);
+  const list = s.chain && s.poolAddress
+    ? await fetchPoolCandles(s.chain, s.poolAddress, tf, bars, end)
+    : await (botRuntime(s.bot)?.market ?? BYBIT).fetchKlines(s.symbol, tf, {
+      startTime: start, endTime: end, limit: bars,
+    });
+  // Страховка: биржа могла отдать больше, чем просили
+  return list.filter((c) => c.closeTime >= start && c.openTime <= end);
+}
+
 export async function buildTradeChart(s: BotSetup): Promise<TradeChart> {
   const dex = Boolean(s.chain && s.poolAddress);
   const from = entryMs(s);
@@ -85,33 +112,16 @@ export async function buildTradeChart(s: BotSetup): Promise<TradeChart> {
   // остаётся пара свечей и по нему ничего не прочитать.
   const span = Math.max(to - from, 30 * 60_000);
   const tf = pickTf(span * 1.4, dex ? GT_TFS : TIMEFRAMES);
-  // Поля по краям: видно, откуда цена пришла к входу и куда ушла после выхода.
-  // Границы обязательно целые: дробные миллисекунды биржа молча игнорирует
-  // и вместо окна отдаёт свежий кусок истории на весь лимит.
+  // Поля по краям: видно, откуда цена пришла к входу и куда ушла после выхода
   const pad = Math.round(Math.max(span * 0.18, TF_MS[tf] * 8));
-  const start = Math.floor(from - pad);
-  const end = Math.min(Math.ceil(to + pad), Date.now());
-  const bars = Math.ceil((end - start) / TF_MS[tf]) + 2;
+  const start = from - pad;
+  const end = Math.min(to + pad, Date.now());
 
-  let candles;
-  let exchange: string;
-  if (dex) {
-    exchange = "GeckoTerminal";
-    candles = await fetchPoolCandles(s.chain!, s.poolAddress!, tf, bars, end);
-  } else {
-    const market = botRuntime(s.bot)?.market ?? BYBIT;
-    exchange = market.name;
-    candles = await market.fetchKlines(s.symbol, tf, {
-      startTime: start, endTime: end, limit: Math.min(bars, 1000),
-    });
-  }
-  // Страховка от той же беды: биржа могла отдать больше, чем просили
-  candles = candles.filter((c) => c.closeTime >= start && c.openTime <= end);
-
+  const candles = await fetchTradeCandles(s, tf, start, end);
   const replay = replayTrade(s, candles);
   return {
     tf,
-    exchange,
+    exchange: tradeExchange(s),
     candles: candles.map((c) => ({ t: c.openTime, o: c.open, h: c.high, l: c.low, c: c.close })),
     levels: dex ? dexLevels(s) : futuresLevels(s),
     events: replay.events,

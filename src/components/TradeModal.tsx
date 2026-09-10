@@ -108,7 +108,9 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
 
           {s && chart && (
             <>
-              <TradeChart data={chart} fmt={fmt} long={s.direction === "LONG"} />
+              <TradeChart
+                data={chart} setupId={s.id} fmt={fmt} long={s.direction === "LONG"}
+              />
 
               <div className="stats-grid">
                 <div className="stat">

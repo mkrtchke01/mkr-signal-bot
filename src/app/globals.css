@@ -795,6 +795,16 @@ code.inline {
 }
 .chart-tip b { color: var(--c-1); }
 
+/* Управление графиком: листание, масштаб, возврат к сделке */
+.chart-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.chart-bar .btn.icon { font-size: 15px; line-height: 1; }
+
 /* Хронология сделки */
 .timeline {
   list-style: none;
@@ -844,14 +854,12 @@ tbody tr.clickable:hover .link-cell { color: var(--brand-hover); }
 
   .container { padding-top: 18px; }
 
-  /* Карточка сделки на телефоне занимает почти весь экран, а график
-     на такой ширине становится нечитаем — растягиваем его по горизонтали
-     и даём прокрутить */
+  /* Карточка сделки на телефоне занимает почти весь экран. График не
+     растягиваем и не даём прокручивать вбок: горизонтальный свайп по нему
+     листает историю, а мелкие свечи разбираются кнопкой «+» */
   .modal-back { padding: 0; }
   .modal { max-width: none; border-radius: 0; min-height: 100vh; }
   .modal-body { padding: 14px 14px 24px; }
-  .chart-box { overflow-x: auto; }
-  .trade-chart { width: 720px; max-width: none; }
 
   .topbar-inner { height: 56px; gap: 8px; }
   .logo { font-size: 15px; }
