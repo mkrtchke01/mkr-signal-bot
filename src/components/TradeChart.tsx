@@ -6,14 +6,19 @@
 // Рисуем руками в SVG, без библиотеки: нужен один конкретный график, а не
 // универсальный движок, зато он тянет цвета из темы и весит ноль килобайт.
 //
-// График листается и масштабируется. Окно задаётся правым краем (i1) и числом
-// свечей (n) — так при зуме и догрузке истории картинка не «уезжает»: индексы
-// уже загруженных свечей сдвигаются вместе с ней. Когда левый край окна уходит
-// за начало загруженного, соседний кусок подтягивается тем же таймфреймом.
+// График листается, масштабируется и умеет менять таймфрейм. Окно задаётся
+// правым краем (i1) и числом свечей (n) — так при зуме и догрузке истории
+// картинка не «уезжает»: индексы уже загруженных свечей сдвигаются вместе
+// с ней. Когда левый край окна уходит за начало загруженного, соседний кусок
+// подтягивается тем же таймфреймом.
+//
+// Разметка (линии, которые рисует человек) живёт во времени и цене, а не в
+// пикселях: она переживает и прокрутку, и смену масштаба, и смену шага.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { fmtPct } from "@/lib/format";
 import { TF_MS } from "@/lib/types";
+import type { TF } from "@/lib/types";
 import type { ChartCandle, ChartLevel, TradeChart as Data } from "@/lib/tradeChart";
 import type { TradeEvent } from "@/lib/replay";
 
@@ -26,8 +31,9 @@ const PAD_B = 26;
 
 const MIN_BARS = 25;
 const MAX_BARS = 700;
-const CHUNK = 300;    // сколько свечей просим за раз
+const CHUNK = 300;       // сколько свечей просим за раз
 const MAX_LOADED = 4000; // дальше не листаем: и памяти жалко, и смысла мало
+const TF_BARS = 500;     // сколько свечей показываем сразу после смены шага
 
 const TONE: Record<string, string> = {
   entry: "var(--brand)",
@@ -52,6 +58,9 @@ const EVENT_SHORT: Record<TradeEvent["kind"], string> = {
   EXIT: "выход",
 };
 
+// Линия разметки: концы во времени и цене
+interface Mark { t1: number; p1: number; t2: number; p2: number }
+
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 function fmtTime(ms: number, withDate: boolean): string {
@@ -59,6 +68,26 @@ function fmtTime(ms: number, withDate: boolean): string {
   const hm = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   if (!withDate) return hm;
   return `${d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })} ${hm}`;
+}
+
+// Разметка переживает закрытие карточки: рисовал человек, выбрасывать жалко
+function marksKey(id: string) { return `mkr:marks:${id}`; }
+
+function loadMarks(id: string): Mark[] {
+  try {
+    const raw = localStorage.getItem(marksKey(id));
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((m) => Number.isFinite(m?.t1)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMarks(id: string, marks: Mark[]) {
+  try {
+    if (marks.length) localStorage.setItem(marksKey(id), JSON.stringify(marks));
+    else localStorage.removeItem(marksKey(id));
+  } catch { /* приватный режим — рисуем без сохранения */ }
 }
 
 export default function TradeChart({
@@ -69,12 +98,12 @@ export default function TradeChart({
   fmt: (p: number | null | undefined) => string;
   long: boolean; // направление сделки: от него зависит, где «в плюс»
 }) {
-  const step = TF_MS[data.tf];
   const clipId = useId();
   const box = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; i1: number } | null>(null);
   const touched = useRef(false); // график уже двигали руками
 
+  const [tf, setTf] = useState<TF>(data.tf);
   const [all, setAll] = useState<ChartCandle[]>(data.candles);
   // Правый край окна (исключая) и ширина в свечах — одним состоянием: колесо
   // мыши сыплет событиями пачкой, и обновления должны складываться, а не
@@ -87,47 +116,59 @@ export default function TradeChart({
   const [atEnd, setAtEnd] = useState(false);     // правее только будущее
   const [hover, setHover] = useState<number | null>(null); // глобальный индекс
   const [failed, setFailed] = useState("");
+  const [drawing, setDrawing] = useState(false); // включён режим разметки
+  const [marks, setMarks] = useState<Mark[]>([]);
+  const [draft, setDraft] = useState<Mark | null>(null);
+
+  const step = TF_MS[tf];
 
   // Длина в ref: обновления состояния считаются вне рендера и должны видеть
   // актуальный размер массива, а не тот, что был при создании обработчика
   const lenRef = useRef(all.length);
   lenRef.current = all.length;
 
+  useEffect(() => { setMarks(loadMarks(setupId)); }, [setupId]);
+
   // Новая сделка — новое окно
   useEffect(() => {
+    setTf(data.tf);
     setAll(data.candles);
     setView({ i1: data.candles.length, n: Math.max(data.candles.length, MIN_BARS) });
     setAtStart(false);
     setAtEnd(false);
     setFailed("");
+    setDraft(null);
   }, [data]);
 
-  const bars = clamp(view.n, MIN_BARS, MAX_BARS);
+  // Нижняя граница зума — MIN_BARS, но если свечей загружено меньше (крупный
+  // шаг на короткой истории), пусть занимают всю ширину, а не жмутся к краю
+  const bars = clamp(view.n, Math.min(MIN_BARS, all.length || MIN_BARS), MAX_BARS);
   const right = clamp(view.i1, 1, all.length);
   const left = right - bars; // может быть отрицательным: слева ещё не загружено
+
+  const ask = useCallback(async (t: TF, from: number, to: number): Promise<ChartCandle[]> => {
+    const res = await fetch(
+      `/api/bot/setups/${setupId}/candles?tf=${t}`
+      + `&from=${Math.floor(from)}&to=${Math.ceil(to)}`,
+    );
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error ?? `${res.status}`);
+    return j.candles ?? [];
+  }, [setupId]);
 
   const load = useCallback(async (dir: "older" | "newer") => {
     if (!all.length) return;
     setBusy(true);
     try {
-      const from = dir === "older"
-        ? all[0].t - CHUNK * step
-        : all[all.length - 1].t + step;
-      const to = dir === "older"
-        ? all[0].t - 1
-        : Math.min(Date.now(), all[all.length - 1].t + CHUNK * step);
+      const edge = dir === "older" ? all[0].t : all[all.length - 1].t;
+      const from = dir === "older" ? edge - CHUNK * step : edge + step;
+      const to = dir === "older" ? edge - 1 : Math.min(Date.now(), edge + CHUNK * step);
       if (to <= from) {
         (dir === "older" ? setAtStart : setAtEnd)(true);
         return;
       }
-      const res = await fetch(
-        `/api/bot/setups/${setupId}/candles?tf=${data.tf}`
-        + `&from=${Math.floor(from)}&to=${Math.ceil(to)}`,
-      );
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error ?? `${res.status}`);
-      const fresh: ChartCandle[] = (j.candles ?? []).filter(
-        (c: ChartCandle) => (dir === "older" ? c.t < all[0].t : c.t > all[all.length - 1].t),
+      const fresh = (await ask(tf, from, to)).filter(
+        (c) => (dir === "older" ? c.t < all[0].t : c.t > all[all.length - 1].t),
       );
       if (!fresh.length) {
         (dir === "older" ? setAtStart : setAtEnd)(true);
@@ -149,7 +190,7 @@ export default function TradeChart({
     } finally {
       setBusy(false);
     }
-  }, [all, data.tf, setupId, step]);
+  }, [all, ask, step, tf]);
 
   // Докачиваем, когда окно подошло к краю загруженного. Пока график не трогали,
   // ничего не грузим: окно сделки и так упирается в оба края, а лишний запрос
@@ -159,6 +200,57 @@ export default function TradeChart({
     if (left < 5 && !atStart) load("older");
     else if (right >= all.length && !atEnd) load("newer");
   }, [left, right, busy, atStart, atEnd, all.length, load]);
+
+  // Смена шага. Метки событий и лесенку стопа не пересчитываем: они заданы
+  // временем и ценой, а восстановлены по шагу, на котором вся сделка целиком
+  // помещалась в окно — это честнее, чем пересчитывать их по обрезку.
+  const switchTf = useCallback(async (next: TF) => {
+    if (next === tf || busy) return;
+    setBusy(true);
+    setFailed("");
+    try {
+      const from = data.entryMs;
+      const to = data.exitMs ?? Date.now();
+      const span = Math.max(to - from, 30 * 60_000);
+      const pad = Math.max(span * 0.18, TF_MS[next] * 8);
+      const s0 = from - pad;
+      // Мелким шагом длинная сделка целиком не влезет — показываем начало,
+      // остальное человек долистает
+      const s1 = Math.min(Math.min(to + pad, s0 + TF_BARS * TF_MS[next]), Date.now());
+      const fresh = await ask(next, s0, s1);
+      if (!fresh.length) throw new Error(`нет свечей ${next} за это время`);
+      setTf(next);
+      setAll(fresh);
+      setView({ i1: fresh.length, n: clamp(fresh.length, 1, MAX_BARS) });
+      setAtStart(false);
+      setAtEnd(false);
+      touched.current = false;
+    } catch (e) {
+      setFailed(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [ask, busy, data.entryMs, data.exitMs, tf]);
+
+  // Время → дробный индекс свечи. Двоичный поиск, а не деление на шаг:
+  // у DEX-пулов пустые свечи пропущены, равномерной сетки нет.
+  const idxOf = useCallback((ms: number) => {
+    if (!all.length) return 0;
+    if (ms <= all[0].t) return (ms - all[0].t) / step;
+    let a = 0;
+    let b = all.length - 1;
+    while (a < b) {
+      const mid = (a + b + 1) >> 1;
+      if (all[mid].t <= ms) a = mid; else b = mid - 1;
+    }
+    return a + (ms - all[a].t) / step;
+  }, [all, step]);
+
+  const timeAt = useCallback((gi: number) => {
+    if (!all.length) return 0;
+    const i = clamp(Math.floor(gi), 0, all.length - 1);
+    return all[i].t + (gi - i) * step;
+  }, [all, step]);
 
   const geo = useMemo(() => {
     const plotW = W - PAD_L - PAD_R;
@@ -187,25 +279,14 @@ export default function TradeChart({
     const bottom = lo - padY;
 
     const y = (v: number) => PAD_T + ((top - v) / (top - bottom)) * plotH;
+    const priceAt = (py: number) => top - ((py - PAD_T) / plotH) * (top - bottom);
     const xIdx = (gi: number) => PAD_L + (gi - left) * cw + cw / 2;
-    // Время → дробный индекс свечи. Двоичный поиск, а не деление на шаг:
-    // у DEX-пулов пустые свечи пропущены, равномерной сетки нет.
-    const idxOf = (ms: number) => {
-      if (!all.length) return 0;
-      if (ms <= all[0].t) return (ms - all[0].t) / step;
-      let a = 0;
-      let b = all.length - 1;
-      while (a < b) {
-        const mid = (a + b + 1) >> 1;
-        if (all[mid].t <= ms) a = mid; else b = mid - 1;
-      }
-      return a + (ms - all[a].t) / step;
-    };
-    const x = (ms: number) => xIdx(idxOf(ms));
-    return { plotW, plotH, cw, from, to, win, top, bottom, y, x, xIdx, idxOf };
-  }, [all, left, right, bars, step, data.levels]);
+    const idxAt = (px: number) => left + (px - PAD_L - cw / 2) / cw;
+    return { plotW, plotH, cw, from, to, win, top, bottom, y, priceAt, xIdx, idxAt };
+  }, [all, left, right, bars, data.levels]);
 
-  const { plotW, plotH, cw, from, to, win, top, bottom, y, x, xIdx } = geo;
+  const { plotW, plotH, cw, from, to, win, top, bottom, y, priceAt, xIdx, idxAt } = geo;
+  const x = useCallback((ms: number) => xIdx(idxOf(ms)), [xIdx, idxOf]);
 
   // ── управление ──
   const pan = useCallback((deltaBars: number) => {
@@ -228,12 +309,19 @@ export default function TradeChart({
   }, []);
 
   const reset = useCallback(() => {
-    const base = all.findIndex((c) => c.t >= data.candles[0].t);
+    const a = idxOf(data.entryMs);
+    const b = idxOf(data.exitMs ?? (all.length ? all[all.length - 1].t : data.entryMs));
+    const padBars = Math.max(6, Math.round((b - a) * 0.18));
     setView({
-      n: Math.max(data.candles.length, MIN_BARS),
-      i1: (base < 0 ? 0 : base) + data.candles.length,
+      n: clamp(Math.round(b - a + 2 * padBars), MIN_BARS, MAX_BARS),
+      i1: clamp(Math.round(b + padBars), 1, all.length),
     });
-  }, [all, data.candles]);
+  }, [all, data.entryMs, data.exitMs, idxOf]);
+
+  const putMarks = useCallback((next: Mark[]) => {
+    setMarks(next);
+    saveMarks(setupId, next);
+  }, [setupId]);
 
   // Колесо мыши масштабирует. Слушатель вешаем вручную: React вешает wheel
   // пассивно, а из пассивного нельзя отменить прокрутку страницы.
@@ -250,14 +338,32 @@ export default function TradeChart({
     return () => el.removeEventListener("wheel", onWheel);
   }, [zoom]);
 
+  // Курсор → время и цена в координатах данных
+  function pointAt(e: React.PointerEvent<SVGRectElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = PAD_L + ((e.clientX - r.left) / r.width) * plotW;
+    const py = PAD_T + ((e.clientY - r.top) / r.height) * plotH;
+    return { t: timeAt(idxAt(px)), p: priceAt(py) };
+  }
+
   function onDown(e: React.PointerEvent<SVGRectElement>) {
     e.currentTarget.setPointerCapture(e.pointerId);
+    if (drawing) {
+      const { t, p } = pointAt(e);
+      setDraft({ t1: t, p1: p, t2: t, p2: p });
+      return;
+    }
     drag.current = { x: e.clientX, i1: right };
     setHover(null);
   }
 
   function onMove(e: React.PointerEvent<SVGRectElement>) {
     const r = e.currentTarget.getBoundingClientRect();
+    if (draft) {
+      const { t, p } = pointAt(e);
+      setDraft({ ...draft, t2: t, p2: p });
+      return;
+    }
     if (drag.current) {
       touched.current = true;
       const dx = ((e.clientX - drag.current.x) / r.width) * plotW;
@@ -271,16 +377,22 @@ export default function TradeChart({
   }
 
   function onUp(e: React.PointerEvent<SVGRectElement>) {
-    if (drag.current) e.currentTarget.releasePointerCapture(e.pointerId);
+    if (drag.current || draft) e.currentTarget.releasePointerCapture(e.pointerId);
     drag.current = null;
+    if (draft) {
+      // Случайный клик без протяжки линией не считаем
+      const dx = Math.abs(x(draft.t2) - x(draft.t1));
+      const dy = Math.abs(y(draft.p2) - y(draft.p1));
+      if (Math.hypot(dx, dy) > 6) putMarks([...marks, draft]);
+      setDraft(null);
+    }
   }
 
   if (!all.length) {
     return <p className="muted">Биржа не отдала свечи за это время — график построить не из чего.</p>;
   }
 
-  const spanDays = (bars * step) / 86_400_000;
-  const withDate = spanDays > 1;
+  const withDate = (bars * step) / 86_400_000 > 1;
 
   const entryX = x(data.entryMs);
   const exitX = data.exitMs === null ? xIdx(all.length) : x(data.exitMs);
@@ -296,7 +408,7 @@ export default function TradeChart({
   for (let i = 0; i < win.length; i += tickStep) ticks.push(from + i);
 
   // Лесенка стопа: горизонталь до следующей ступени, вертикаль на подъёме.
-  // Ступени вне окна пропускаем — обрезкой займётся clipPath.
+  // Ступени вне окна не выкидываем — обрезкой занимается clipPath.
   const stopPath = (() => {
     const pts: string[] = [];
     data.stops.forEach((s, i) => {
@@ -322,7 +434,6 @@ export default function TradeChart({
 
   const hc: ChartCandle | null = hover === null ? null : all[hover] ?? null;
   const hoverX = hover === null ? 0 : xIdx(hover);
-  const shown = win.length;
 
   const zone = (a: number, b: number, fill: string, stroke: string) => (
     <rect
@@ -332,6 +443,43 @@ export default function TradeChart({
       fill={fill} stroke={stroke} strokeWidth={1} strokeDasharray="4 4" opacity={0.55}
     />
   );
+
+  const markLine = (m: Mark, i: number | null) => {
+    const x1 = x(m.t1);
+    const y1 = y(m.p1);
+    const x2 = x(m.t2);
+    const y2 = y(m.p2);
+    const move = ((m.p2 - m.p1) / (m.p1 || 1)) * 100;
+    return (
+      <g key={i === null ? "draft" : `m${i}`}>
+        <line
+          x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--c-1)" strokeWidth={1.6}
+          strokeLinecap="round" strokeDasharray={i === null ? "5 4" : ""}
+          pointerEvents="none"
+        />
+        <circle cx={x1} cy={y1} r={3} fill="var(--c-1)" pointerEvents="none" />
+        <circle cx={x2} cy={y2} r={3} fill="var(--c-1)" pointerEvents="none" />
+        <text
+          x={x2 + 6} y={y2 - 6} fill="var(--c-1)" fontSize={11} fontWeight={600}
+          stroke="var(--bg)" strokeWidth={3} paintOrder="stroke" pointerEvents="none"
+        >
+          {fmt(m.p2)} ({move >= 0 ? "+" : ""}{move.toFixed(2)}%)
+        </text>
+        {/* Крестик на середине — удалить линию. Кликом по самой линии её
+            убирать нельзя: тогда с неё не начать рисовать новую */}
+        {i !== null && drawing && (
+          <g style={{ cursor: "pointer" }}
+            onClick={() => putMarks(marks.filter((_, k) => k !== i))}>
+            <title>убрать линию</title>
+            <circle cx={(x1 + x2) / 2} cy={(y1 + y2) / 2} r={7.5}
+              fill="var(--bg)" stroke="var(--c-1)" strokeWidth={1.2} />
+            <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 + 3.5} textAnchor="middle"
+              fontSize={9} fill="var(--c-1)" pointerEvents="none">✕</text>
+          </g>
+        )}
+      </g>
+    );
+  };
 
   return (
     <div>
@@ -464,14 +612,21 @@ export default function TradeChart({
 
           <rect
             x={PAD_L} y={PAD_T} width={plotW} height={plotH} fill="transparent"
-            style={{ cursor: drag.current ? "grabbing" : "grab", touchAction: "pan-y" }}
+            style={{ cursor: drawing ? "crosshair" : "grab", touchAction: "pan-y" }}
             onPointerDown={onDown} onPointerMove={onMove}
             onPointerUp={onUp} onPointerCancel={onUp}
             onPointerLeave={() => setHover(null)}
           />
+
+          {/* Разметка поверх поля: крестик удаления должен ловить клик,
+              а его перекрыл бы прозрачный прямоугольник управления */}
+          <g clipPath={`url(#${clipId})`}>
+            {marks.map((m, i) => markLine(m, i))}
+            {draft && markLine(draft, null)}
+          </g>
         </svg>
 
-        {hc && (
+        {hc && !draft && (
           <div
             className="chart-tip"
             style={{
@@ -492,6 +647,16 @@ export default function TradeChart({
       </div>
 
       <div className="chart-bar">
+        <div className="seg sm">
+          {data.tfs.map((t) => (
+            <button
+              key={t} className={t === tf ? "active" : ""} disabled={busy}
+              onClick={() => switchTf(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
         <button className="btn sm icon" title="Листать назад"
           disabled={atStart && left <= 0}
           onClick={() => pan(-Math.round(bars / 3))}>←</button>
@@ -503,10 +668,27 @@ export default function TradeChart({
         <button className="btn sm icon" title="Приблизить"
           disabled={bars <= MIN_BARS} onClick={() => zoom(1 / 1.4)}>+</button>
         <button className="btn sm" onClick={reset}>К сделке</button>
+        <button
+          className={`btn sm ${drawing ? "primary" : ""}`}
+          title="Рисовать линии: тяни от точки до точки"
+          onClick={() => setDrawing((v) => !v)}
+        >
+          ✏️ Линия
+        </button>
+        {marks.length > 0 && (
+          <>
+            <button className="btn sm icon" title="Убрать последнюю линию"
+              onClick={() => putMarks(marks.slice(0, -1))}>⟲</button>
+            <button className="btn sm icon" title="Убрать все линии"
+              onClick={() => putMarks([])}>🗑</button>
+          </>
+        )}
         <span className="muted" style={{ fontSize: 12.5 }}>
-          {shown} свечей {data.tf} · тяни мышью, колесо — масштаб
+          {drawing
+            ? `тяни по графику от точки до точки${marks.length ? " · крестик на линии убирает её" : ""}`
+            : `${win.length} свечей ${tf} · тяни мышью, колесо — масштаб`}
           {busy && " · подгружаю…"}
-          {atStart && left <= 0 && " · дальше истории нет"}
+          {!drawing && atStart && left <= 0 && " · дальше истории нет"}
         </span>
         {failed && <span className="error" style={{ fontSize: 12.5 }}>{failed}</span>}
       </div>
