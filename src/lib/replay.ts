@@ -17,7 +17,7 @@ import { trackCandle } from "./track";
 import type { TrackState } from "./track";
 import type { BotSetup, Candle } from "./types";
 
-export type TradeEventKind = "ENTRY" | "TP1" | "TRAIL_ON" | "TARGET" | "EXIT";
+export type TradeEventKind = "ENTRY" | "TP1" | "TRAIL_ON" | "EXIT";
 
 export interface TradeEvent {
   kind: TradeEventKind;
@@ -102,7 +102,7 @@ function exitEvent(s: BotSetup): TradeEvent | null {
   };
 }
 
-// ── Фьючерсные боты: сопровождение считает trackCandle ──
+// Сопровождение позиции считает trackCandle — тот же код, что у бота
 function replayFutures(s: BotSetup, win: Candle[]): TradeReplay {
   const isLong = s.direction === "LONG";
   const st: TrackState = {
@@ -157,59 +157,6 @@ function replayFutures(s: BotSetup, win: Candle[]): TradeReplay {
   return { events, stops, ...extremes(s, win) };
 }
 
-// ── Мемкоин-бот: спот без биржевых стопов. Колонки те же, но смысл другой:
-// tp1 — ориентир ×2, stop_price — уровень инвалидации, activate_at — цена
-// включения выхода по откату, trail_abs — доля отката от пика. ──
-const DEX_MILESTONE = 1.5; // отметка +50%, ей же помечается tp1_done
-
-function replayDex(s: BotSetup, win: Candle[]): TradeReplay {
-  const retrace = s.trailAbs > 0 && s.trailAbs < 1 ? s.trailAbs : 0;
-  const stops: StopStep[] = [{ time: win[0]?.openTime ?? entryMs(s), stop: s.stopPrice }];
-  let peak = s.entryPrice;
-  let armed = false;
-  let line = s.stopPrice;
-  for (const c of win) {
-    peak = Math.max(peak, c.high);
-    if (!armed && s.activateAt > 0 && peak >= s.activateAt) armed = true;
-    if (!armed || !retrace) continue;
-    const next = Math.max(line, peak * (1 - retrace));
-    if (next !== line) {
-      line = next;
-      stops.push({ time: c.openTime, stop: line });
-    }
-  }
-
-  const milestone = s.entryPrice * DEX_MILESTONE;
-  const events: TradeEvent[] = [{
-    kind: "ENTRY", time: entryMs(s), price: s.entryPrice,
-    label: "покупка", note: s.reasons?.entry,
-  }];
-  const arm = s.activateAt > 0 ? firstTouch(win, s.activateAt, true) : null;
-  if (arm) {
-    events.push({
-      kind: "TRAIL_ON", time: arm.openTime, price: s.activateAt,
-      label: `включился выход по откату ${Math.round(retrace * 100)}% от пика`,
-    });
-  }
-  const ms = firstTouch(win, milestone, true);
-  if (ms) {
-    events.push({
-      kind: "TP1", time: ms.openTime, price: milestone,
-      label: "+50% — можно снять часть",
-    });
-  }
-  const tgt = firstTouch(win, s.tp1, true);
-  if (tgt) {
-    events.push({ kind: "TARGET", time: tgt.openTime, price: s.tp1, label: "ориентир +100%" });
-  }
-  const exit = exitEvent(s);
-  if (exit) events.push(exit);
-  events.sort((a, b) => a.time - b.time);
-
-  return { events, stops, ...extremes(s, win) };
-}
-
 export function replayTrade(s: BotSetup, candles: Candle[]): TradeReplay {
-  const win = tradeWindow(s, candles);
-  return s.poolAddress ? replayDex(s, win) : replayFutures(s, win);
+  return replayFutures(s, tradeWindow(s, candles));
 }

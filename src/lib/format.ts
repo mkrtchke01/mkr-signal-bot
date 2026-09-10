@@ -79,17 +79,6 @@ export function signalCloseCaption(s: Signal): string {
   ].join("\n");
 }
 
-// Мемкоин-цена бывает крошечной (0.00000000123): toPrecision отдаёт научную
-// запись, а её в таблице читать невозможно — разворачиваем в обычную.
-export function fmtTiny(p: number | null | undefined): string {
-  if (p === null || p === undefined || !Number.isFinite(p)) return "—";
-  if (p === 0) return "0";
-  if (p >= 1) return p.toLocaleString("en-US", { maximumFractionDigits: 4 });
-  const s = p.toPrecision(4);
-  if (!s.includes("e")) return s;
-  return (p < 0 ? "-" : "") + Math.abs(p).toFixed(20).replace(/0+$/, "");
-}
-
 // Сколько сделка прожила: минуты для скальпа, дни для позиционки
 export function fmtDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "—";

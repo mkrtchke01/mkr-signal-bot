@@ -45,7 +45,6 @@ const TONE: Record<string, string> = {
 const EVENT_TONE: Record<TradeEvent["kind"], string> = {
   ENTRY: "var(--brand)",
   TP1: "var(--green)",
-  TARGET: "var(--green)",
   TRAIL_ON: "var(--yellow)",
   EXIT: "var(--c-1)",
 };
@@ -53,7 +52,6 @@ const EVENT_TONE: Record<TradeEvent["kind"], string> = {
 const EVENT_SHORT: Record<TradeEvent["kind"], string> = {
   ENTRY: "вход",
   TP1: "TP1",
-  TARGET: "цель",
   TRAIL_ON: "трейл",
   EXIT: "выход",
 };

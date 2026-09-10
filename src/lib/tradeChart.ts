@@ -2,11 +2,9 @@
 // путь (вход, TP1, включение трейлинга, лесенка стопа, выход).
 //
 // Таймфрейм подбирается под длительность сделки: внутридневную рисуем минутками,
-// многодневную — часами. Ориентир — около 240 свечей в окне: меньше — картинка
-// пустая, больше — свечи сливаются в кашу и ответ распухает.
+// многодневную — часами. Дальше шаг переключает человек кнопками над графиком.
 
 import { botRuntime } from "./botRegistry";
-import { fetchPoolCandles, GT_TFS } from "./geckoterminal";
 import { BYBIT } from "./market";
 import { entryMs, exitMs, replayTrade } from "./replay";
 import { TF_MS } from "./types";
@@ -18,12 +16,11 @@ import type { BotSetup, Candle, TF } from "./types";
 // сделку мелкими свечами — крупные всегда в одно нажатие.
 const TARGET_BARS = 400;
 
-// Шаги, между которыми можно переключаться на графике. У биржевых ботов берём
-// привычную лесенку (весь список TIMEFRAMES в переключателе не нужен), у
-// мемкоинов — то, что вообще отдаёт GeckoTerminal.
+// Шаги, между которыми можно переключаться на графике: привычная лесенка,
+// весь список TIMEFRAMES в переключателе не нужен.
 const CHART_TFS: TF[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
-// Свеча для отрисовки: короткие имена — окно на 240 баров уходит по сети
+// Свеча для отрисовки: короткие имена — окно в сотни баров уходит по сети
 export interface ChartCandle {
   t: number; o: number; h: number; l: number; c: number;
 }
@@ -57,9 +54,9 @@ function pickTf(spanMs: number, allowed: readonly TF[]): TF {
   return allowed[allowed.length - 1];
 }
 
-// Уровни фьючерсного сетапа. Начальный стоп и подтянутый показываем порознь:
-// в базе stop_price уже перетёрт трейлингом, а рисовать надо оба.
-function futuresLevels(s: BotSetup): ChartLevel[] {
+// Уровни сетапа. Начальный стоп и подтянутый показываем порознь: в базе
+// stop_price уже перетёрт трейлингом, а рисовать надо оба.
+function setupLevels(s: BotSetup): ChartLevel[] {
   const out: ChartLevel[] = [
     { price: s.entryPrice, label: "вход", tone: "entry" },
     { price: s.initialStop, label: "стоп", tone: "stop" },
@@ -71,24 +68,8 @@ function futuresLevels(s: BotSetup): ChartLevel[] {
   return out;
 }
 
-// У мемкоин-бота те же колонки значат другое: цель ×2, инвалидация вместо
-// стопа, отметка +50% и цена включения выхода по откату.
-function dexLevels(s: BotSetup): ChartLevel[] {
-  const out: ChartLevel[] = [
-    { price: s.entryPrice, label: "покупка", tone: "entry" },
-    { price: s.stopPrice, label: "идея не сыграла", tone: "stop" },
-    { price: s.entryPrice * 1.5, label: "+50%", tone: "trail" },
-    { price: s.tp1, label: "ориентир +100%", tone: "tp" },
-  ];
-  if (s.activateAt > 0) {
-    out.push({ price: s.activateAt, label: "выход по откату включён", tone: "trail" });
-  }
-  return out;
-}
-
-// Где торгует бот: мемкоины — на DEX через GeckoTerminal, остальные — на бирже
+// Биржа, на которой торгует бот сделки
 export function tradeExchange(s: BotSetup): string {
-  if (s.chain && s.poolAddress) return "GeckoTerminal";
   return (botRuntime(s.bot)?.market ?? BYBIT).name;
 }
 
@@ -104,24 +85,20 @@ export async function fetchTradeCandles(
   const start = Math.floor(from);
   const end = Math.ceil(to);
   const bars = Math.min(Math.ceil((end - start) / TF_MS[tf]) + 2, 1000);
-  const list = s.chain && s.poolAddress
-    ? await fetchPoolCandles(s.chain, s.poolAddress, tf, bars, end)
-    : await (botRuntime(s.bot)?.market ?? BYBIT).fetchKlines(s.symbol, tf, {
-      startTime: start, endTime: end, limit: bars,
-    });
+  const list = await (botRuntime(s.bot)?.market ?? BYBIT).fetchKlines(s.symbol, tf, {
+    startTime: start, endTime: end, limit: bars,
+  });
   // Страховка: биржа могла отдать больше, чем просили
   return list.filter((c) => c.closeTime >= start && c.openTime <= end);
 }
 
 export async function buildTradeChart(s: BotSetup): Promise<TradeChart> {
-  const dex = Boolean(s.chain && s.poolAddress);
   const from = entryMs(s);
   const to = exitMs(s);
   // Совсем короткую сделку растягиваем до получаса, иначе на графике
   // остаётся пара свечей и по нему ничего не прочитать.
   const span = Math.max(to - from, 30 * 60_000);
-  const tfs = dex ? GT_TFS : CHART_TFS;
-  const tf = pickTf(span * 1.4, tfs);
+  const tf = pickTf(span * 1.4, CHART_TFS);
   // Поля по краям: видно, откуда цена пришла к входу и куда ушла после выхода
   const pad = Math.round(Math.max(span * 0.18, TF_MS[tf] * 8));
   const start = from - pad;
@@ -131,10 +108,10 @@ export async function buildTradeChart(s: BotSetup): Promise<TradeChart> {
   const replay = replayTrade(s, candles);
   return {
     tf,
-    tfs,
+    tfs: CHART_TFS,
     exchange: tradeExchange(s),
     candles: candles.map((c) => ({ t: c.openTime, o: c.open, h: c.high, l: c.low, c: c.close })),
-    levels: dex ? dexLevels(s) : futuresLevels(s),
+    levels: setupLevels(s),
     events: replay.events,
     stops: replay.stops,
     best: replay.best,

@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import TradeChart from "./TradeChart";
-import { fmtDuration, fmtMoney, fmtPct, fmtPrice, fmtTiny, fmtUsd } from "@/lib/format";
+import { fmtDuration, fmtMoney, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { TradeChart as ChartData } from "@/lib/tradeChart";
 import type { TradeEvent } from "@/lib/replay";
 import type { BotSetup } from "@/lib/types";
@@ -24,7 +24,7 @@ const STATUS_BADGE: Record<string, string> = {
   TIME: "time", CANCELLED: "paused",
 };
 const EVENT_DOT: Record<TradeEvent["kind"], string> = {
-  ENTRY: "brand", TP1: "green", TARGET: "green", TRAIL_ON: "yellow", EXIT: "c1",
+  ENTRY: "brand", TP1: "green", TRAIL_ON: "yellow", EXIT: "c1",
 };
 
 // «1 раз», «2 раза», «5 раз»
@@ -40,9 +40,8 @@ function fmtWhen(ms: number): string {
   });
 }
 
-// Ссылка на «большой» график: у мемкоина DexScreener, у фьючерса — биржа бота
-function outsideUrl(s: BotSetup, exchange: string): string | null {
-  if (s.chain && s.poolAddress) return `https://dexscreener.com/${s.chain}/${s.poolAddress}`;
+// Ссылка на «большой» график — на биржу, где бот торгует
+function outsideUrl(s: BotSetup, exchange: string): string {
   if (exchange === "BingX") {
     return `https://bingx.com/en/perpetual/${s.symbol.replace(/USDT$/, "-USDT")}`;
   }
@@ -76,9 +75,6 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
 
   const s = data?.setup;
   const chart = data?.chart;
-  // Цены мемкоинов — с восемью нулями после запятой, обычным форматом их не видно
-  const fmt = s?.poolAddress ? fmtTiny : fmtPrice;
-  const dex = Boolean(s?.poolAddress);
 
   const openedMs = s ? new Date(s.filledAt ?? s.createdAt).getTime() : 0;
   const closedMs = s?.closedAt ? new Date(s.closedAt).getTime() : null;
@@ -109,42 +105,38 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
           {s && chart && (
             <>
               <TradeChart
-                data={chart} setupId={s.id} fmt={fmt} long={s.direction === "LONG"}
+                data={chart} setupId={s.id} fmt={fmtPrice} long={s.direction === "LONG"}
               />
 
               <div className="stats-grid">
                 <div className="stat">
-                  <div className="v">{fmt(s.entryPrice)}</div>
+                  <div className="v">{fmtPrice(s.entryPrice)}</div>
                   <div className="l">вход · {fmtWhen(openedMs)}</div>
                 </div>
                 <div className="stat">
-                  <div className="v">{fmt(s.exitPrice)}</div>
+                  <div className="v">{fmtPrice(s.exitPrice)}</div>
                   <div className="l">
                     выход{closedMs ? ` · ${fmtWhen(closedMs)}` : " — ещё в позиции"}
                   </div>
                 </div>
                 <div className="stat">
-                  <div className="v neg">{fmt(s.initialStop)}</div>
-                  <div className="l">{dex ? "идея не сыграла" : "начальный стоп"}</div>
+                  <div className="v neg">{fmtPrice(s.initialStop)}</div>
+                  <div className="l">начальный стоп</div>
                 </div>
                 <div className="stat">
-                  <div className="v pos">{fmt(s.tp1)}</div>
-                  <div className="l">
-                    {dex ? "ориентир +100%" : s.tpFull ? "тейк" : `TP1 · ${s.rr1}R`}
-                  </div>
+                  <div className="v pos">{fmtPrice(s.tp1)}</div>
+                  <div className="l">{s.tpFull ? "тейк" : `TP1 · ${s.rr1}R`}</div>
                 </div>
-                {!dex && (
-                  <div className="stat">
-                    <div className="v">{fmt(s.stopPrice)}</div>
-                    <div className="l">стоп на выходе{s.trailOn ? " (трейл)" : ""}</div>
-                  </div>
-                )}
+                <div className="stat">
+                  <div className="v">{fmtPrice(s.stopPrice)}</div>
+                  <div className="l">стоп на выходе{s.trailOn ? " (трейл)" : ""}</div>
+                </div>
                 {chart.best && (
                   <div className="stat">
                     <div className={`v ${chart.best.pct >= 0 ? "pos" : "neg"}`}>
                       {fmtPct(chart.best.pct)}
                     </div>
-                    <div className="l">лучший ход · {fmt(chart.best.price)}</div>
+                    <div className="l">лучший ход · {fmtPrice(chart.best.price)}</div>
                   </div>
                 )}
                 {chart.worst && (
@@ -154,7 +146,7 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
                     </div>
                     <div className="l">
                       {/* цена может ни разу не уйти ниже входа — тогда это не просадка */}
-                      {chart.worst.pct >= 0 ? "худшая цена" : "просадка"} · {fmt(chart.worst.price)}
+                      {chart.worst.pct >= 0 ? "худшая цена" : "просадка"} · {fmtPrice(chart.worst.price)}
                     </div>
                   </div>
                 )}
@@ -168,16 +160,14 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
                   </div>
                   <div className="l">движение цены</div>
                 </div>
-                {!dex && (
-                  <div className="stat">
-                    <div className={`v ${(s.profitUsd ?? 0) >= 0 ? "pos" : "neg"}`}>
-                      {fmtUsd(s.profitUsd)}
-                    </div>
-                    <div className="l">
-                      итог{s.plan ? ` · ×${s.plan.leverage}, ${fmtMoney(s.plan.notional)}` : ""}
-                    </div>
+                <div className="stat">
+                  <div className={`v ${(s.profitUsd ?? 0) >= 0 ? "pos" : "neg"}`}>
+                    {fmtUsd(s.profitUsd)}
                   </div>
-                )}
+                  <div className="l">
+                    итог{s.plan ? ` · ×${s.plan.leverage}, ${fmtMoney(s.plan.notional)}` : ""}
+                  </div>
+                </div>
               </div>
 
               <div className="card-inner">
@@ -188,7 +178,7 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
                       <span className={`dot ${EVENT_DOT[e.kind]}`} />
                       <span className="when">{fmtWhen(e.time)}</span>
                       <span className="what">
-                        <b>{e.label}</b> · {fmt(e.price)}
+                        <b>{e.label}</b> · {fmtPrice(e.price)}
                         {e.note && <span className="hint"> {e.note}</span>}
                       </span>
                     </li>
@@ -197,8 +187,8 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
                 {chart.stops.length > 1 && (
                   <p className="hint" style={{ margin: "8px 0 0" }}>
                     Стоп подтягивался {chart.stops.length - 1}{" "}
-                    {times(chart.stops.length - 1)}: {fmt(chart.stops[0].stop)} →{" "}
-                    {fmt(chart.stops[chart.stops.length - 1].stop)}. Пунктирная красная линия
+                    {times(chart.stops.length - 1)}: {fmtPrice(chart.stops[0].stop)} →{" "}
+                    {fmtPrice(chart.stops[chart.stops.length - 1].stop)}. Пунктирная красная линия
                     на графике — где стоп стоял в каждый момент.
                   </p>
                 )}
@@ -218,14 +208,12 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
               )}
 
               <div className="actions">
-                {outsideUrl(s, chart.exchange) && (
-                  <a
-                    className="btn sm" target="_blank" rel="noreferrer"
-                    href={outsideUrl(s, chart.exchange)!}
-                  >
-                    📈 Открыть на {dex ? "DexScreener" : chart.exchange}
-                  </a>
-                )}
+                <a
+                  className="btn sm" target="_blank" rel="noreferrer"
+                  href={outsideUrl(s, chart.exchange)}
+                >
+                  📈 Открыть на {chart.exchange}
+                </a>
               </div>
             </>
           )}

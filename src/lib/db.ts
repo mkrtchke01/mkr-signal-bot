@@ -118,11 +118,6 @@ export function ensureSchema(): Promise<void> {
       // Стратегии без частичной фиксации выходят на цели целиком
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
         tp_full boolean NOT NULL DEFAULT false`;
-      // DEX-мемкоины: адреса сети/токена/пула. Нужны, чтобы обновлять цену
-      // на GeckoTerminal и дать ссылку на график. У фьючерсных ботов пусты.
-      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS chain text`;
-      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS token_address text`;
-      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS pool_address text`;
       // Досыпаем значения сетапам, созданным до появления этих колонок:
       // без этого NULL превращается в 0 и трейлинг «активируется» сразу же.
       await sql`UPDATE bot_setups SET activate_at = tp1
@@ -133,18 +128,24 @@ export function ensureSchema(): Promise<void> {
       await sql`ALTER TABLE bot_setups ALTER COLUMN tp2 DROP NOT NULL`;
       await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_status ON bot_setups(status)`;
       await sql`CREATE INDEX IF NOT EXISTS idx_bot_setups_bot ON bot_setups(bot, created_at DESC)`;
-      // Бот «Откат к уровням» удалён как убыточный — чистим его данные.
-      // Повторный запуск ничего не находит и ничего не делает.
-      await sql`DELETE FROM bot_setups WHERE bot = 'pullback-levels'`;
+      // Боты «Откат к уровням» и «Мемкоины перед выносом» удалены — чистим их
+      // данные. Повторный запуск ничего не находит и ничего не делает.
+      await sql`DELETE FROM bot_setups WHERE bot IN ('pullback-levels', 'prepump')`;
+      // Вместе с мемкоин-ботом ушли и адреса пулов: кроме него их никто
+      // не заполнял и не читал.
+      await sql`ALTER TABLE bot_setups DROP COLUMN IF EXISTS chain`;
+      await sql`ALTER TABLE bot_setups DROP COLUMN IF EXISTS token_address`;
+      await sql`ALTER TABLE bot_setups DROP COLUMN IF EXISTS pool_address`;
       await sql`CREATE TABLE IF NOT EXISTS bot_state (
         key text PRIMARY KEY,
         value jsonb NOT NULL
       )`;
-      // Состояние именуется как "<бот>:<ключ>". Ключи удалённого бота
-      // и его безымянные предшественники больше не нужны.
+      // Состояние именуется как "<бот>:<ключ>". Ключи удалённых ботов
+      // и безымянные предшественники больше не нужны.
       await sql`DELETE FROM bot_state
         WHERE key IN ('config', 'regime', 'lastScanMs')
-           OR key LIKE 'pullback-levels:%'`;
+           OR key LIKE 'pullback-levels:%'
+           OR key LIKE 'prepump:%'`;
     })().catch((e) => {
       schemaReady = null; // позволить повторить при следующем запросе
       throw e;
@@ -408,9 +409,6 @@ function rowToBotSetup(r: Row): BotSetup {
       ? null : Number(r.profit_usd),
     closeReason: r.close_reason ?? null,
     lastCheckedMs: Number(r.last_checked_ms),
-    chain: r.chain ?? null,
-    tokenAddress: r.token_address ?? null,
-    poolAddress: r.pool_address ?? null,
   };
 }
 
@@ -494,40 +492,6 @@ export async function updateBotTrail(
 export async function markBotTp1(id: string): Promise<void> {
   const sql = await db();
   await sql`UPDATE bot_setups SET tp1_done = true
-    WHERE id = ${id} AND status = 'OPEN'`;
-}
-
-// ── DEX-мемкоин бот. Спот, без плеча и биржевых ордеров: план не считается,
-// позиция ведётся по цене и пику, выход приходит сообщением. ──
-
-// Новая позиция мемкоин-бота. tp1 = ориентир +100%, stop_price = уровень
-// инвалидации (−35%), best_price = цена входа (пик пока равен ей),
-// trail_abs хранит долю отката для выхода. Плеча нет — plan = NULL.
-export async function insertDexSetup(s: {
-  bot: string; symbol: string; chain: string; tokenAddress: string; poolAddress: string;
-  entry: number; invalidate: number; target: number; milestoneR: number;
-  armAt: number; retrace: number; reasons: BotSetup["reasons"]; regime: string;
-}): Promise<BotSetup> {
-  const sql = await db();
-  const rows = await sql`INSERT INTO bot_setups
-    (bot, symbol, direction, status, entry_price, stop_price, initial_stop,
-     tp1, rr1, activate_at, trail_abs, best_price, tp_full, reasons, regime, plan,
-     chain, token_address, pool_address, filled_at, last_checked_ms)
-    VALUES (${s.bot}, ${s.symbol}, 'LONG', 'OPEN', ${s.entry},
-            ${s.invalidate}, ${s.invalidate},
-            ${s.target}, ${s.milestoneR}, ${s.armAt}, ${s.retrace}, ${s.entry},
-            false, ${JSON.stringify(s.reasons)}::jsonb, ${s.regime}, NULL,
-            ${s.chain}, ${s.tokenAddress}, ${s.poolAddress}, now(), ${Date.now()})
-    RETURNING *`;
-  return rowToBotSetup(rows[0]);
-}
-
-// Обновляем пик цены (для трейлинг-выхода) и метку прохода очередной цели.
-export async function updateDexTracking(
-  id: string, bestPrice: number, trailOn: boolean,
-): Promise<void> {
-  const sql = await db();
-  await sql`UPDATE bot_setups SET best_price = ${bestPrice}, trail_on = ${trailOn}
     WHERE id = ${id} AND status = 'OPEN'`;
 }
 
