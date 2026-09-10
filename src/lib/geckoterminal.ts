@@ -10,6 +10,9 @@
 // Лимит бесплатного тарифа ~30 запросов в минуту, поэтому запросы разнесены
 // небольшими паузами, а список наблюдения ограничен по размеру (см. botPrepump).
 
+import { TF_MS } from "./types";
+import type { Candle, TF } from "./types";
+
 const BASE = "https://api.geckoterminal.com/api/v2";
 // Версию API GeckoTerminal просит указывать в Accept — без неё ответы нестабильны
 const HEADERS = { accept: "application/json;version=20230302" };
@@ -134,4 +137,61 @@ export async function fetchPoolsMulti(net: string, addresses: string[]): Promise
 // Ссылка на график в DexScreener — привычный интерфейс для ручной торговли
 export function dexScreenerUrl(p: { net: string; pool: string }): string {
   return `https://dexscreener.com/${p.net}/${p.pool}`;
+}
+
+// ── Свечи пула для графика сделки ──
+// Отдельный запрос, а не getData: у OHLCV в data лежит объект, а не массив.
+// Гранулярность GeckoTerminal фиксированная — свой набор шагов, не любой TF.
+export const GT_TFS: TF[] = ["1m", "5m", "15m", "1h", "4h", "12h", "1d"];
+
+const GT_STEP: Partial<Record<TF, { unit: string; agg: number }>> = {
+  "1m": { unit: "minute", agg: 1 },
+  "5m": { unit: "minute", agg: 5 },
+  "15m": { unit: "minute", agg: 15 },
+  "1h": { unit: "hour", agg: 1 },
+  "4h": { unit: "hour", agg: 4 },
+  "12h": { unit: "hour", agg: 12 },
+  "1d": { unit: "day", agg: 1 },
+};
+
+/**
+ * Свечи пула до момента `beforeMs`, не больше `limit` штук (потолок API — 1000).
+ * GeckoTerminal отдаёт от новых к старым и без времени закрытия — разворачиваем
+ * и достраиваем, чтобы формат совпал с биржевыми свечами.
+ */
+export async function fetchPoolCandles(
+  net: string, pool: string, tf: TF, limit = 300, beforeMs = Date.now(),
+): Promise<Candle[]> {
+  const step = GT_STEP[tf];
+  if (!step) throw new Error(`GeckoTerminal не отдаёт свечи ${tf}`);
+  const q = new URLSearchParams({
+    aggregate: String(step.agg),
+    before_timestamp: String(Math.ceil(beforeMs / 1000)),
+    limit: String(Math.min(limit, 1000)),
+    currency: "usd",
+    token: "base",
+  });
+  const path = `/networks/${net}/pools/${pool}/ohlcv/${step.unit}?${q}`;
+  const res = await fetch(`${BASE}${path}`, { headers: HEADERS, cache: "no-store" });
+  if (res.status === 429) throw new Error("GeckoTerminal 429: превышен лимит запросов");
+  if (!res.ok) throw new Error(`GeckoTerminal ${res.status} ${res.statusText}: ohlcv`);
+  const j = await res.json();
+  const raw: unknown[] = j?.data?.attributes?.ohlcv_list ?? [];
+  const ms = TF_MS[tf];
+  const out: Candle[] = [];
+  for (let i = raw.length - 1; i >= 0; i--) {
+    const k = raw[i] as unknown[];
+    const openTime = num(k[0]) * 1000;
+    if (!openTime) continue;
+    out.push({
+      openTime,
+      open: num(k[1]),
+      high: num(k[2]),
+      low: num(k[3]),
+      close: num(k[4]),
+      volume: num(k[5]),
+      closeTime: openTime + ms - 1,
+    });
+  }
+  return out;
 }

@@ -5,6 +5,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import TradeModal from "./TradeModal";
 import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
 import type { BotSetup, BotStats } from "@/lib/types";
 
@@ -59,6 +60,8 @@ export default function BotDashboard({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  // id сделки, чья карточка с графиком открыта поверх списка
+  const [trade, setTrade] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -385,6 +388,9 @@ export default function BotDashboard({
               {!s.tpFull && <div>• Трейлинг: {s.reasons.trail}</div>}
             </div>
             <div className="actions">
+              <button className="btn sm" onClick={() => setTrade(s.id)}>
+                📈 График сделки
+              </button>
               <button className="btn sm red" disabled={busy} onClick={() => cancelSetup(s)}>
                 Закрыть по рынку
               </button>
@@ -397,6 +403,10 @@ export default function BotDashboard({
       {!history.length && <div className="card"><p className="muted">Истории пока нет.</p></div>}
       {history.length > 0 && (
         <div className="card table-wrap">
+          <p className="hint" style={{ margin: "8px 0 2px" }}>
+            Нажми на монету — откроется график сделки с входом, выходом, TP1
+            и тем, как за ценой шёл стоп.
+          </p>
           <table>
             <thead>
               <tr>
@@ -407,8 +417,8 @@ export default function BotDashboard({
             </thead>
             <tbody>
               {history.map((s) => (
-                <tr key={s.id}>
-                  <td>#{s.symbol}</td>
+                <tr key={s.id} className="clickable" onClick={() => setTrade(s.id)}>
+                  <td className="link-cell">#{s.symbol}</td>
                   <td><span className={`badge ${s.direction.toLowerCase()}`}>{s.direction}</span></td>
                   <td><span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span></td>
                   <td>{fmtPrice(s.entryPrice)}</td>
@@ -427,7 +437,7 @@ export default function BotDashboard({
                       className="btn sm"
                       disabled={busy}
                       title="Позиция на бирже осталась открытой — вернуть сделку в работу"
-                      onClick={() => reopenSetup(s)}
+                      onClick={(e) => { e.stopPropagation(); reopenSetup(s); }}
                     >
                       ♻️
                     </button>
@@ -438,6 +448,8 @@ export default function BotDashboard({
           </table>
         </div>
       )}
+
+      {trade && <TradeModal id={trade} onClose={() => setTrade(null)} />}
     </main>
   );
 }

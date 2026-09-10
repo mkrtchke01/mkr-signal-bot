@@ -6,7 +6,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { fmtPct } from "@/lib/format";
+import TradeModal from "./TradeModal";
+import { fmtPct, fmtTiny } from "@/lib/format";
 import type { BotSetup, BotStats } from "@/lib/types";
 
 interface Config {
@@ -28,15 +29,6 @@ const STATUS_BADGE: Record<string, string> = {
   OPEN: "running", TP: "tp", TRAIL: "tp", PART: "tp", SL: "sl", TIME: "time", CANCELLED: "paused",
 };
 
-// Мемкоин-цена бывает крошечной — разворачиваем научную запись в читаемую
-function fmtTiny(p: number | null | undefined): string {
-  if (p === null || p === undefined || !Number.isFinite(p)) return "—";
-  if (p === 0) return "0";
-  if (p >= 1) return p.toLocaleString("en-US", { maximumFractionDigits: 4 });
-  const s = p.toPrecision(4);
-  if (!s.includes("e")) return s;
-  return Math.abs(p).toFixed(20).replace(/0+$/, "");
-}
 function fmtTime(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("ru-RU", {
@@ -56,6 +48,8 @@ export default function DexBotDashboard({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  // id сделки, чья карточка с графиком открыта поверх списка
+  const [trade, setTrade] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -241,11 +235,12 @@ export default function DexBotDashboard({
               <div>• Выход: {s.reasons.trail}</div>
               <div>• Провал: {s.reasons.stop}</div>
             </div>
-            {url && (
-              <div className="actions">
-                <a className="btn sm" href={url} target="_blank" rel="noreferrer">📈 График на DexScreener</a>
-              </div>
-            )}
+            <div className="actions">
+              <button className="btn sm" onClick={() => setTrade(s.id)}>📈 График сделки</button>
+              {url && (
+                <a className="btn sm" href={url} target="_blank" rel="noreferrer">DexScreener</a>
+              )}
+            </div>
           </div>
         );
       })}
@@ -254,6 +249,9 @@ export default function DexBotDashboard({
       {!history.length && <div className="card"><p className="muted">Истории пока нет.</p></div>}
       {history.length > 0 && (
         <div className="card table-wrap">
+          <p className="hint" style={{ margin: "8px 0 2px" }}>
+            Нажми на монету — откроется график сделки с покупкой, пиком и выходом.
+          </p>
           <table>
             <thead>
               <tr>
@@ -265,8 +263,8 @@ export default function DexBotDashboard({
               {history.map((s) => {
                 const url = dexUrl(s);
                 return (
-                  <tr key={s.id}>
-                    <td>#{s.symbol}</td>
+                  <tr key={s.id} className="clickable" onClick={() => setTrade(s.id)}>
+                    <td className="link-cell">#{s.symbol}</td>
                     <td className="muted">{s.chain ?? "—"}</td>
                     <td><span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span></td>
                     <td>{fmtTiny(s.entryPrice)}</td>
@@ -276,7 +274,9 @@ export default function DexBotDashboard({
                     </td>
                     <td className="muted">{fmtTime(s.createdAt)}</td>
                     <td className="muted">{fmtTime(s.closedAt)}</td>
-                    <td>{url && <a className="muted" href={url} target="_blank" rel="noreferrer">📈</a>}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {url && <a className="muted" href={url} target="_blank" rel="noreferrer">📈</a>}
+                    </td>
                   </tr>
                 );
               })}
@@ -284,6 +284,8 @@ export default function DexBotDashboard({
           </table>
         </div>
       )}
+
+      {trade && <TradeModal id={trade} onClose={() => setTrade(null)} />}
     </main>
   );
 }

@@ -719,11 +719,139 @@ code.inline {
 }
 .login-card h1 { margin: 0 0 4px; }
 
+/* ---------- Карточка сделки поверх списка -------------------- */
+.modal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4vh 16px;
+  overflow-y: auto;
+  background: rgba(12, 14, 19, .55);
+  backdrop-filter: blur(3px);
+}
+.modal {
+  width: 100%;
+  max-width: 1040px;
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head .sym {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--c-1);
+  letter-spacing: -.015em;
+}
+.modal-x { margin-left: auto; }
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px 20px;
+}
+
+/* График сделки */
+.chart-box {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  padding: 6px 4px 0;
+}
+.trade-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-variant-numeric: tabular-nums;
+}
+.chart-tip {
+  position: absolute;
+  top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--c-2);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.chart-tip b { color: var(--c-1); }
+
+/* Хронология сделки */
+.timeline {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.timeline li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--c-2);
+}
+.timeline .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translateY(-1px);
+}
+.timeline .dot.brand { background: var(--brand); }
+.timeline .dot.green { background: var(--green); }
+.timeline .dot.yellow { background: var(--yellow); }
+.timeline .dot.c1 { background: var(--c-1); }
+.timeline .when {
+  flex: none;
+  color: var(--c-4);
+  font-variant-numeric: tabular-nums;
+}
+.timeline .what { min-width: 0; overflow-wrap: anywhere; }
+.timeline .what b { color: var(--c-1); font-weight: 650; }
+
+/* Строка истории кликабельна — открывает карточку сделки */
+tbody tr.clickable { cursor: pointer; }
+.link-cell {
+  color: var(--brand);
+  font-weight: 650;
+}
+tbody tr.clickable:hover .link-cell { color: var(--brand-hover); }
+
 /* ---------- Адаптив ----------------------------------------- */
 @media (max-width: 720px) {
   :root { --gutter: 14px; }
 
   .container { padding-top: 18px; }
+
+  /* Карточка сделки на телефоне занимает почти весь экран, а график
+     на такой ширине становится нечитаем — растягиваем его по горизонтали
+     и даём прокрутить */
+  .modal-back { padding: 0; }
+  .modal { max-width: none; border-radius: 0; min-height: 100vh; }
+  .modal-body { padding: 14px 14px 24px; }
+  .chart-box { overflow-x: auto; }
+  .trade-chart { width: 720px; max-width: none; }
 
   .topbar-inner { height: 56px; gap: 8px; }
   .logo { font-size: 15px; }

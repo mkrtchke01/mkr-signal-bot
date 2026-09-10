@@ -78,3 +78,24 @@ export function signalCloseCaption(s: Signal): string {
     `Результат: ${fmtPct(s.profitPct)} (с плечом ×${s.leverage})`,
   ].join("\n");
 }
+
+// Мемкоин-цена бывает крошечной (0.00000000123): toPrecision отдаёт научную
+// запись, а её в таблице читать невозможно — разворачиваем в обычную.
+export function fmtTiny(p: number | null | undefined): string {
+  if (p === null || p === undefined || !Number.isFinite(p)) return "—";
+  if (p === 0) return "0";
+  if (p >= 1) return p.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  const s = p.toPrecision(4);
+  if (!s.includes("e")) return s;
+  return (p < 0 ? "-" : "") + Math.abs(p).toFixed(20).replace(/0+$/, "");
+}
+
+// Сколько сделка прожила: минуты для скальпа, дни для позиционки
+export function fmtDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const m = Math.round(ms / 60_000);
+  if (m < 90) return `${m} мин`;
+  const h = ms / 3_600_000;
+  if (h < 48) return `${h.toFixed(1)} ч`;
+  return `${(h / 24).toFixed(1)} дн`;
+}
