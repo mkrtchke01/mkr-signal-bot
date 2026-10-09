@@ -137,6 +137,8 @@ export interface TradePlan {
     // У планов, посчитанных до появления поля, его нет; читается только там,
     // где tpFull = true, а такие сетапы всегда с новым планом.
     tpFull: number;
+    // TP1 взят, остаток закрыт на tpFinal. Есть только у планов сетапов с tpFinal
+    final?: number;
   };
 }
 
@@ -156,6 +158,9 @@ export interface BotSetup {
   trailOn: boolean;    // трейлинг уже активирован
   bestPrice: number;   // лучшая цена с момента активации трейлинга
   tpFull: boolean;     // на tp1 выходим целиком: ни половины, ни трейлинга
+  // Цель остатка после TP1, когда стоп после фиксации половины переносится
+  // в безубыток (вместо трейлинга). null — у сетапа такой цели нет.
+  tpFinal: number | null;
   reasons: { entry: string; stop: string; tp1: string; trail: string };
   regime: string;
   plan: TradePlan | null; // null только у сетапов, созданных до денежной модели

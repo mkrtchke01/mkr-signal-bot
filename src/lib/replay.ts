@@ -48,6 +48,12 @@ const EXIT_LABEL: Record<string, string> = {
   CANCELLED: "закрыт вручную по рынку",
 };
 
+// Сетапы с безубытком после TP1 закрываются иначе
+const EXIT_LABEL_FINAL: Record<string, string> = {
+  TP: "TP2 — остаток закрыт на второй цели",
+  PART: "остаток закрыт в безубыток, TP1 уже взят",
+};
+
 export function entryMs(s: BotSetup): number {
   return new Date(s.filledAt ?? s.createdAt).getTime();
 }
@@ -97,7 +103,8 @@ function exitEvent(s: BotSetup): TradeEvent | null {
     kind: "EXIT",
     time: new Date(s.closedAt).getTime(),
     price: s.exitPrice,
-    label: EXIT_LABEL[s.status] ?? "выход",
+    label: (s.tpFinal ? EXIT_LABEL_FINAL[s.status] : undefined)
+      ?? EXIT_LABEL[s.status] ?? "выход",
     note: s.closeReason ?? undefined,
   };
 }
@@ -137,7 +144,10 @@ function replayFutures(s: BotSetup, win: Candle[]): TradeReplay {
     if (c) {
       events.push({
         kind: "TP1", time: c.openTime, price: s.tp1,
-        label: `TP1 (${s.rr1}R) — зафиксирована половина`, note: s.reasons?.tp1,
+        label: s.tpFinal
+          ? `TP1 (${s.rr1}R) — зафиксирована половина, стоп в безубыток`
+          : `TP1 (${s.rr1}R) — зафиксирована половина`,
+        note: s.reasons?.tp1,
       });
     }
   }

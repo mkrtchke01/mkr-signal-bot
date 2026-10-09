@@ -128,8 +128,14 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
                 </div>
                 <div className="stat">
                   <div className="v pos">{fmtPrice(s.tp1)}</div>
-                  <div className="l">{s.tpFull ? "тейк" : `TP1 · ${s.rr1}R`}</div>
+                  <div className="l">{s.tpFull ? `тейк · ${s.rr1}R` : `TP1 · ${s.rr1}R${s.tpFinal ? " · 50%" : ""}`}</div>
                 </div>
+                {s.tpFinal && (
+                  <div className="stat">
+                    <div className="v pos">{fmtPrice(s.tpFinal)}</div>
+                    <div className="l">TP2 · остаток после б/у</div>
+                  </div>
+                )}
                 <div className="stat">
                   <div className="v">{fmtRR(expectedRR(s))}</div>
                   <div className="l">ожидаемый RR · риск/прибыль</div>
@@ -210,7 +216,9 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
                   <div>• Вход: {s.reasons.entry}</div>
                   {s.reasons.stop && <div>• Стоп: {s.reasons.stop}</div>}
                   {s.reasons.tp1 && <div>• {s.tpFull ? "Тейк" : "TP1"}: {s.reasons.tp1}</div>}
-                  {!s.tpFull && s.reasons.trail && <div>• Трейлинг: {s.reasons.trail}</div>}
+                  {!s.tpFull && s.reasons.trail && (
+                    <div>• {s.tpFinal ? "Остаток" : "Трейлинг"}: {s.reasons.trail}</div>
+                  )}
                 </div>
               )}
 

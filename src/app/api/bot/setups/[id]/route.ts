@@ -12,6 +12,7 @@ import {
 } from "@/lib/strategyBtcIntraday";
 import { levelsFromStop as trendlineLevels } from "@/lib/strategyTrendline";
 import { broadcastText } from "@/lib/telegram";
+import { fmtPrice } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -71,34 +72,48 @@ export async function POST(
 
     // Цели пересчитывает та стратегия, которая сетап породила: у каждого бота
     // свои R до цели и свои параметры трейлинга. У «Пробоя наклонки» цель —
-    // основание линии, заново его не построить, зато сохранён rr самого сетапа.
+    // основание линии, заново его не построить, зато известен rr до него:
+    // по цели остатка, если она есть, иначе rr1 (у старых сетапов это он и есть).
+    const trendRr = s.tpFinal
+      ? Math.abs(s.tpFinal - s.entryPrice) / Math.abs(s.entryPrice - s.initialStop)
+      : s.rr1;
+    const tl = s.bot === TRENDLINE_SLUG
+      ? trendlineLevels(s.direction, s.entryPrice, s.initialStop, trendRr)
+      : null;
     const lv = s.bot === TRENDLINE_SLUG
-      ? trendlineLevels(s.direction, s.entryPrice, s.initialStop, s.rr1)
+      ? tl
       : s.bot === BTC_INTRADAY_SLUG
         ? intradayLevels(s.direction, s.entryPrice, s.initialStop)
         : levelsFromStop(s.direction, s.entryPrice, s.initialStop);
     if (!lv || !(lv.tp1 > 0)) {
       return NextResponse.json({ error: "Не удалось пересчитать уровни" }, { status: 400 });
     }
-    const rr1 = s.bot === TRENDLINE_SLUG
-      ? s.rr1
+    const rr1 = tl
+      ? tl.rr1
       : s.bot === BTC_INTRADAY_SLUG ? INTRADAY_TP_R : TP1_R;
+    const tpFull = tl ? tl.tpFull : s.tpFull;
+    const tpFinal = tl ? tl.tpFinal : null;
     const plan = buildPlan(s.direction, s.entryPrice, s.initialStop, lv.tp1,
-      marketOf(s.bot).takerFee);
+      marketOf(s.bot).takerFee, tpFinal);
     if (!plan) {
       return NextResponse.json({ error: "Не удалось пересчитать план" }, { status: 400 });
     }
 
     const fresh = await reopenBotSetup(id, {
       tp1: lv.tp1, rr1, activateAt: lv.activateAt, trailAbs: lv.trailAbs,
+      tpFull, tpFinal,
       plan,
       reasons: {
         ...s.reasons,
-        tp1: s.tpFull
+        tp1: tpFull
           ? `${rr1}R: выходим целиком — цель пересчитана от прежнего стопа`
-          : `${rr1}R: фиксируем половину — цели пересчитаны по действующим правилам`,
-        trail: s.tpFull
+          : tpFinal
+            ? `${rr1}R: фиксируем половину и переносим стоп в безубыток`
+            : `${rr1}R: фиксируем половину — цели пересчитаны по действующим правилам`,
+        trail: tpFull
           ? `трейлинга нет — позиция закрывается целиком на тейке или на стопе`
+          : tpFinal
+            ? `трейлинга нет — остаток в безубытке идёт до ${fmtPrice(tpFinal)}`
           : `трейлинг подхватывает остаток с цены активации, шаг постоянный`,
       },
     });

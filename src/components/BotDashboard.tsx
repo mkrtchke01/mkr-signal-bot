@@ -303,7 +303,16 @@ export default function BotDashboard({
                   {s.plan && ` · ${fmtUsd(s.tpFull ? s.plan.pnl.tpFull : s.plan.pnl.tp1)}`}
                 </div>
               </div>
-              {!s.tpFull && (
+              {s.tpFinal && (
+                <div className="stat">
+                  <div className="v pos">{fmtPrice(s.tpFinal)}</div>
+                  <div className="l">
+                    TP2 остатка · {fmtRR(expectedRR(s))}
+                    {s.plan?.pnl.final !== undefined && ` · ${fmtUsd(s.plan.pnl.final)}`}
+                  </div>
+                </div>
+              )}
+              {!s.tpFull && !s.tpFinal && (
                 <div className="stat">
                   <div className={`v ${s.trailOn ? "pos" : ""}`}>{fmtPrice(s.activateAt)}</div>
                   <div className="l">
@@ -341,7 +350,8 @@ export default function BotDashboard({
             )}
             <div className="card-inner brand">
               <b style={{ fontSize: 14, color: "var(--c-1)" }}>
-                Как выставить на {exchange.name} — один раз, потом не трогаем
+                Как выставить на {exchange.name}
+                {s.tpFinal ? " — после TP1 перенести стоп в безубыток" : " — один раз, потом не трогаем"}
               </b>
               <ol className="hint" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                 <li>
@@ -353,6 +363,19 @@ export default function BotDashboard({
                     «TP/SL» на весь объём: стоп-лосс <b>{fmtPrice(s.initialStop)}</b>,
                     тейк-профит <b>{fmtPrice(s.tp1)}</b>
                   </li>
+                ) : s.tpFinal ? (
+                  <>
+                    <li>
+                      «TP/SL» → режим <b>«Частичная позиция»</b>: стоп-лосс{" "}
+                      <b>{fmtPrice(s.initialStop)}</b> на весь объём, тейк-профит{" "}
+                      <b>{fmtPrice(s.tp1)}</b> на 50% и тейк-профит{" "}
+                      <b>{fmtPrice(s.tpFinal)}</b> на остальные 50%
+                    </li>
+                    <li>
+                      {s.tp1Done ? "TP1 взят — стоп-лосс должен стоять" : "Когда возьмётся TP1 — переставь стоп-лосс"}
+                      {" "}в безубыток: <b>{fmtPrice(s.entryPrice)}</b>
+                    </li>
+                  </>
                 ) : (
                   <li>
                     «TP/SL» → режим <b>«Частичная позиция»</b>: стоп-лосс{" "}
@@ -360,7 +383,7 @@ export default function BotDashboard({
                     <b>{fmtPrice(s.tp1)}</b> на 50%
                   </li>
                 )}
-                {!s.tpFull && (
+                {!s.tpFull && !s.tpFinal && (
                   <li>
                     «Скользящий стоп-ордер» → «+ Добавить»: коррекция{" "}
                     <b>{fmtPrice(s.trailAbs)}</b> (режим «По сумме»), цена активации{" "}
@@ -375,6 +398,11 @@ export default function BotDashboard({
                     лимитным ордером: комиссия мейкера {exchange.maker} вместо{" "}
                     {exchange.taker} по рынку — на коротком стопе эта разница заметна.
                   </>
+                ) : s.tpFinal ? (
+                  <>
+                    Половина фиксируется на {fmtPrice(s.tp1)}, остаток в безубытке идёт
+                    до {fmtPrice(s.tpFinal)} — после TP1 сделка в плюсе при любом исходе.
+                  </>
                 ) : (
                   <>
                     Половина фиксируется на {fmtPrice(s.tp1)} — после этого сделка в плюсе
@@ -388,7 +416,7 @@ export default function BotDashboard({
               <div>• Вход: {s.reasons.entry}</div>
               <div>• Стоп: {s.reasons.stop}</div>
               <div>• {s.tpFull ? "Тейк" : "TP1"}: {s.reasons.tp1}</div>
-              {!s.tpFull && <div>• Трейлинг: {s.reasons.trail}</div>}
+              {!s.tpFull && <div>• {s.tpFinal ? "Остаток" : "Трейлинг"}: {s.reasons.trail}</div>}
             </div>
             <div className="actions">
               <button className="btn sm" onClick={() => setTrade(s.id)}>

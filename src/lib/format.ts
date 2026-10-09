@@ -91,11 +91,14 @@ export function fmtDuration(ms: number): string {
 
 // Ожидаемое соотношение риск/прибыль сетапа: сколько стопов до цели.
 // Берём записанное ботом rr1, а у старых записей без него — считаем по уровням.
+// Если остаток ведётся до второй цели (tpFinal), ожидание считаем по ней.
 export function expectedRR(s: {
   entryPrice: number; initialStop: number; tp1: number; rr1?: number | null;
+  tpFinal?: number | null;
 }): number | null {
-  if (s.rr1 && s.rr1 > 0) return s.rr1;
   const risk = Math.abs(s.entryPrice - s.initialStop);
+  if (s.tpFinal && s.tpFinal > 0 && risk > 0) return Math.abs(s.tpFinal - s.entryPrice) / risk;
+  if (s.rr1 && s.rr1 > 0) return s.rr1;
   if (!(risk > 0) || !Number.isFinite(s.tp1)) return null;
   return Math.abs(s.tp1 - s.entryPrice) / risk;
 }

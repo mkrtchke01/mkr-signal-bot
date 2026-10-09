@@ -9,6 +9,12 @@ import type { BotSetup, TradePlan } from "./types";
 
 const pct3 = (v: number) => `${(v * 100).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}%`;
 
+// Сколько риска от входа до цены — для подписи второй цели
+function rrOf(s: BotSetup, price: number): string {
+  const risk = Math.abs(s.entryPrice - s.initialStop);
+  return risk > 0 ? (Math.abs(price - s.entryPrice) / risk).toFixed(1) : "—";
+}
+
 function dirBadge(s: BotSetup): string {
   return s.direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
 }
@@ -34,6 +40,24 @@ function trailAtTp1(s: BotSetup): boolean {
 
 // Инструкция «поставил и забыл»: три экрана биржи, дальше позиция ведёт себя сама
 export function exchangeSetupLines(s: BotSetup, ex: MarketData): string[] {
+  // Половина на TP1, остаток в безубытке до второй цели: оба тейка ставятся
+  // сразу, руками после TP1 нужно только перенести стоп
+  if (s.tpFinal) {
+    return [
+      `⚙️ КАК ВЫСТАВИТЬ НА ${ex.name.toUpperCase()}`,
+      ``,
+      `1) Вход по рынку${s.plan ? `, плечо ×${s.plan.leverage}, изолированная маржа` : ""}.`,
+      `2) В позиции открой «TP/SL» → режим «Частичная позиция»:`,
+      `   • Стоп-лосс: ${fmtPrice(s.initialStop)} — на весь объём`,
+      `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма`,
+      `   • Тейк-профит: ${fmtPrice(s.tpFinal)} — на остальные 50%`,
+      `3) Когда возьмётся ${fmtPrice(s.tp1)} — переставь стоп-лосс в безубыток: `
+        + `${fmtPrice(s.entryPrice)}. Бот напомнит.`,
+      ``,
+      `Тейки лучше ставить лимитными ордерами — комиссия мейкера ${pct3(ex.makerFee)}`,
+      `вместо ${pct3(ex.takerFee)} по рынку.`,
+    ];
+  }
   // Без частичной фиксации всё проще: стоп и тейк на весь объём, и это всё
   if (s.tpFull) {
     return [
@@ -87,7 +111,11 @@ export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
       + (p ? ` (${p.stopPct.toFixed(2)}% от входа)` : "") + money(p?.pnl.sl),
     ...(s.tpFull
       ? [`🎯 Тейк: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tpFull)} — выход целиком`]
-      : [
+      : s.tpFinal ? [
+        `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)} — фикс 50%, стоп в б/у`,
+        `🏁 TP2: ${fmtPrice(s.tpFinal)} (${rrOf(s, s.tpFinal)}R)${money(p?.pnl.final)} `
+          + `— остаток целиком`,
+      ] : [
         `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)} — фикс 50%`,
         `📈 Остаток: трейлинг с шагом ${fmtPrice(s.trailAbs)}, `
           + (trailAtTp1(s) ? `включается там же` : `включается на ${fmtPrice(s.activateAt)}`),
@@ -100,7 +128,9 @@ export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
     `Почему стоп: ${s.reasons.stop}`,
     ...(s.tpFull
       ? [`Почему тейк: ${s.reasons.tp1}`]
-      : [`TP1: ${s.reasons.tp1}`, `Трейлинг: ${s.reasons.trail}`]),
+      : s.tpFinal
+        ? [`TP1: ${s.reasons.tp1}`, `Остаток: ${s.reasons.trail}`]
+        : [`TP1: ${s.reasons.tp1}`, `Трейлинг: ${s.reasons.trail}`]),
     ``,
     style.note,
   ].join("\n");
@@ -114,7 +144,10 @@ export function botTp1Caption(s: BotSetup): string {
       + (p ? ` → ${fmtUsd(p.pnl.tp1)}` : ""),
     `Сделка уже в плюсе при любом исходе: даже если остаток выбьет стопом, `
       + `итог будет${p ? ` ${fmtUsd(p.pnl.part)}` : " положительным"}.`,
-    trailAtTp1(s)
+    s.tpFinal
+      ? `❗ Переставь стоп-лосс на остаток в безубыток: ${fmtPrice(s.entryPrice)}. `
+        + `Остаток идёт ко второй цели ${fmtPrice(s.tpFinal)} — тейк там уже стоит.`
+      : trailAtTp1(s)
       ? `Остаток уже под трейлингом с шагом ${fmtPrice(s.trailAbs)} — он закроет `
         + `позицию сам на откате. Делать ничего не нужно.`
       : `Остаток идёт к ${fmtPrice(s.activateAt)} — там подхватит трейлинг. `
@@ -137,7 +170,12 @@ export function botRearmCaption(s: BotSetup): string {
         `   • Тейк-профит: ${fmtPrice(s.tp1)} — на весь объём (${s.rr1}R)`,
         `   • Стоп-лосс ${fmtPrice(s.initialStop)} оставь как есть`,
       ]
-      : [
+      : s.tpFinal ? [
+        `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма (${s.rr1}R)`,
+        `   • Тейк-профит: ${fmtPrice(s.tpFinal)} — на остальные 50% (${rrOf(s, s.tpFinal)}R)`,
+        `   • Стоп-лосс ${fmtPrice(s.initialStop)} оставь как есть, а после TP1 `
+          + `переставь в безубыток: ${fmtPrice(s.entryPrice)}`,
+      ] : [
         `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма (${s.rr1}R)`,
         `   • Скользящий стоп: коррекция ${fmtPrice(s.trailAbs)}, `
           + `цена активации ${fmtPrice(s.activateAt)}`,

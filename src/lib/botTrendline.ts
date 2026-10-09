@@ -15,6 +15,7 @@ import {
   MIN_RR, MIN_TOUCHES, TRENDLINE_TFS,
 } from "./strategyTrendline";
 import { publishSetup } from "./bot";
+import { trendlineExits } from "./trendlineExits";
 import { chunks } from "./botScan";
 import type { BotConfig, BotTickReport } from "./bot";
 import type { TrendlineCandidate } from "./strategyTrendline";
@@ -48,7 +49,8 @@ const CAPTION = {
   note: "⚠️ Вход в моменте пробоя, поэтому цена в сигнале живёт недолго: "
     + "заходить имеет смысл сразу, а если цена уже вернулась за границу уровня — "
     + "сигнал пропустить. Цель далёкая (от 3R), в плюс закрывается меньшая часть "
-    + "сделок — смысл есть только на дистанции.",
+    + "сделок — смысл есть только на дистанции. Если до основания наклонки дальше "
+    + "3.7R — на 3R фиксируем половину и переносим стоп в безубыток.",
   exchange: BINGX,
 };
 
@@ -135,11 +137,14 @@ export async function scanTrendline(
     if (published >= slots) break;
     // Одна монета — один сигнал за скан, даже если пробой виден на двух ТФ
     if (taken.has(c.symbol)) continue;
+    // До 3.7R — целиком на 3R, дальше — половина на 3R и остаток до основания
+    const ex = trendlineExits(c.direction, c.entry, c.stop, c.rr);
+    if (!ex) continue;
     const ok = await publishSetup({
       bot: slug, symbol: c.symbol, direction: c.direction,
-      entry: c.entry, stop: c.stop, tp1: c.tp, rr1: Math.round(c.rr * 10) / 10,
-      // трейлинга у стратегии нет: на цели выходим целиком
-      activateAt: 0, trailAbs: 0, tpFull: true,
+      entry: c.entry, stop: c.stop, tp1: ex.tp1, rr1: ex.rr1,
+      activateAt: ex.activateAt, trailAbs: ex.trailAbs,
+      tpFull: ex.tpFull, tpFinal: ex.tpFinal,
       feeRate: BINGX.takerFee,
       reasons: c.reasons,
       regime: `наклонка на ${c.tf}: ${c.touches} касания (минимум ${MIN_TOUCHES}) `

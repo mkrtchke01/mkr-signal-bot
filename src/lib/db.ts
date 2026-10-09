@@ -118,6 +118,8 @@ export function ensureSchema(): Promise<void> {
       // Стратегии без частичной фиксации выходят на цели целиком
       await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS
         tp_full boolean NOT NULL DEFAULT false`;
+      // Цель остатка после TP1 и переноса стопа в безубыток («Пробой наклонки»)
+      await sql`ALTER TABLE bot_setups ADD COLUMN IF NOT EXISTS tp_final double precision`;
       // Досыпаем значения сетапам, созданным до появления этих колонок:
       // без этого NULL превращается в 0 и трейлинг «активируется» сразу же.
       await sql`UPDATE bot_setups SET activate_at = tp1
@@ -396,6 +398,7 @@ function rowToBotSetup(r: Row): BotSetup {
     trailOn: Boolean(r.trail_on),
     bestPrice: numOr(r.best_price, entry),
     tpFull: Boolean(r.tp_full),
+    tpFinal: r.tp_final === null || r.tp_final === undefined ? null : Number(r.tp_final),
     reasons: j(r.reasons),
     regime: r.regime,
     plan: r.plan ? j<TradePlan>(r.plan) : null,
@@ -438,17 +441,17 @@ export async function insertBotSetup(s: {
   entryPrice: number; stopPrice: number;
   tp1: number; rr1: number; activateAt: number; trailAbs: number;
   reasons: BotSetup["reasons"]; regime: string; plan: TradePlan;
-  tpFull?: boolean;
+  tpFull?: boolean; tpFinal?: number | null;
 }): Promise<BotSetup> {
   const sql = await db();
   const rows = await sql`INSERT INTO bot_setups
     (bot, symbol, direction, status, entry_price, stop_price, initial_stop,
-     tp1, rr1, activate_at, trail_abs, best_price, tp_full, reasons, regime, plan,
+     tp1, rr1, activate_at, trail_abs, best_price, tp_full, tp_final, reasons, regime, plan,
      filled_at, last_checked_ms)
     VALUES (${s.bot}, ${s.symbol}, ${s.direction}, 'OPEN', ${s.entryPrice},
             ${s.stopPrice}, ${s.stopPrice},
             ${s.tp1}, ${s.rr1}, ${s.activateAt}, ${s.trailAbs}, ${s.entryPrice},
-            ${s.tpFull ?? false},
+            ${s.tpFull ?? false}, ${s.tpFinal ?? null},
             ${JSON.stringify(s.reasons)}::jsonb,
             ${s.regime}, ${JSON.stringify(s.plan)}::jsonb, now(), ${Date.now()})
     RETURNING *`;
@@ -460,6 +463,7 @@ export async function insertBotSetup(s: {
 // риск; пересчитываются только цели и параметры трейлинга.
 export async function reopenBotSetup(id: string, s: {
   tp1: number; rr1: number; activateAt: number; trailAbs: number;
+  tpFull: boolean; tpFinal: number | null;
   reasons: BotSetup["reasons"]; plan: TradePlan;
 }): Promise<BotSetup | null> {
   const sql = await db();
@@ -467,6 +471,7 @@ export async function reopenBotSetup(id: string, s: {
       status = 'OPEN', stop_price = initial_stop,
       tp1 = ${s.tp1}, rr1 = ${s.rr1},
       activate_at = ${s.activateAt}, trail_abs = ${s.trailAbs},
+      tp_full = ${s.tpFull}, tp_final = ${s.tpFinal},
       trail_on = false, tp1_done = false, best_price = entry_price,
       exit_price = NULL, profit_pct = NULL, profit_usd = NULL,
       closed_at = NULL, close_reason = NULL,
@@ -478,13 +483,14 @@ export async function reopenBotSetup(id: string, s: {
   return rows.length ? rowToBotSetup(rows[0]) : null;
 }
 
-// Трейлинг подтянул стоп за ценой — сохраняем новый стоп и лучшую цену
+// Стоп сдвинулся — трейлингом за ценой или переносом в безубыток после TP1.
+// Сохраняем новый стоп, лучшую цену и включён ли трейлинг.
 export async function updateBotTrail(
-  id: string, stopPrice: number, bestPrice: number,
+  id: string, stopPrice: number, bestPrice: number, trailOn = true,
 ): Promise<void> {
   const sql = await db();
   await sql`UPDATE bot_setups SET stop_price = ${stopPrice}, best_price = ${bestPrice},
-      trail_on = true
+      trail_on = ${trailOn}
     WHERE id = ${id} AND status = 'OPEN'`;
 }
 

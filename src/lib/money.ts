@@ -43,6 +43,7 @@ export function pickLeverage(stopFrac: number): number {
 export function buildPlan(
   direction: Direction, entry: number, stop: number, tp1: number,
   feeRate = TAKER_FEE,
+  tpFinal: number | null = null, // остаток после TP1 в безубытке идёт до этой цели
 ): TradePlan | null {
   const isLong = direction === "LONG";
   const risk = Math.abs(entry - stop);
@@ -72,10 +73,12 @@ export function buildPlan(
     liqPct: r2(liqFrac * 100),
     pnl: {
       tp1: r2(half1),
-      // после TP1 стоп на остаток остаётся исходным — это и есть худший исход
-      part: r2(half1 + legPnl(qty, 0.5, entry, stop, isLong, feeRate)),
+      // после TP1 стоп на остаток остаётся исходным — это и есть худший исход;
+      // при переносе в безубыток худший исход — остаток закрыт по входу
+      part: r2(half1 + legPnl(qty, 0.5, entry, tpFinal ? entry : stop, isLong, feeRate)),
       sl: r2(legPnl(qty, 1, entry, stop, isLong, feeRate)),
       tpFull: r2(legPnl(qty, 1, entry, tp1, isLong, feeRate)),
+      ...(tpFinal ? { final: r2(half1 + legPnl(qty, 0.5, entry, tpFinal, isLong, feeRate)) } : {}),
     },
   };
 }

@@ -13,7 +13,9 @@ export interface TrackState {
 }
 
 export type TrackLevels =
-  Pick<BotSetup, "direction" | "tp1" | "activateAt" | "trailAbs" | "tpFull">;
+  Pick<BotSetup, "direction" | "tp1" | "activateAt" | "trailAbs" | "tpFull">
+  // Безубыток после TP1: стоп остатка переезжает на вход, цель остатка — tpFinal
+  & Partial<Pick<BotSetup, "entryPrice" | "tpFinal">>;
 
 export interface TrackStep {
   stopped: boolean;  // позицию выбило стопом (обычным или трейлинговым)
@@ -41,6 +43,22 @@ export function trackCandle(s: TrackLevels, st: TrackState, c: Candle): TrackSte
   if (s.tpFull) {
     const hit = isLong ? c.high >= s.tp1 : c.low <= s.tp1;
     return { stopped: false, tp1Hit: false, tpHit: hit };
+  }
+
+  // Половина на TP1, остаток в безубытке идёт до tpFinal — без трейлинга
+  if (s.tpFinal && s.tpFinal > 0 && s.entryPrice && s.entryPrice > 0) {
+    const be = s.entryPrice;
+    let tp1Hit = false;
+    if (!st.tp1Done && (isLong ? c.high >= s.tp1 : c.low <= s.tp1)) {
+      st.tp1Done = true;
+      tp1Hit = true;
+      if (isLong ? be > st.stop : be < st.stop) {
+        st.stop = be;
+        st.moved = true;
+      }
+    }
+    const tpHit = st.tp1Done && (isLong ? c.high >= s.tpFinal : c.low <= s.tpFinal);
+    return { stopped: false, tp1Hit, tpHit };
   }
 
   // фиксация половины: стоп на остаток здесь не двигаем

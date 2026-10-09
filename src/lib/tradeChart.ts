@@ -62,6 +62,11 @@ function setupLevels(s: BotSetup): ChartLevel[] {
     { price: s.initialStop, label: "стоп", tone: "stop" },
     { price: s.tp1, label: s.tpFull ? "тейк" : `TP1 · ${s.rr1}R`, tone: "tp" },
   ];
+  if (s.tpFinal) {
+    const risk = Math.abs(s.entryPrice - s.initialStop);
+    const rr = risk > 0 ? (Math.abs(s.tpFinal - s.entryPrice) / risk).toFixed(1) : "?";
+    out.push({ price: s.tpFinal, label: `TP2 · ${rr}R`, tone: "tp" });
+  }
   if (!s.tpFull && s.trailAbs > 0 && s.activateAt > 0 && s.activateAt !== s.tp1) {
     out.push({ price: s.activateAt, label: "старт трейлинга", tone: "trail" });
   }

@@ -93,7 +93,9 @@ async function monitorSetup(
       const status = st.trailOn ? "TRAIL" : st.tp1Done ? "PART" : "SL";
       const reason = {
         TRAIL: "Трейлинг снял прибыль: движение выдохлось.",
-        PART: "Остаток выбит стопом, но половина зафиксирована на TP1 — сделка в плюсе.",
+        PART: s.tpFinal
+          ? "Остаток закрыт в безубыток, половина зафиксирована на TP1 — сделка в плюсе."
+          : "Остаток выбит стопом, но половина зафиксирована на TP1 — сделка в плюсе.",
         SL: "Пробой оказался ложным — цена вернулась в диапазон.",
       }[status];
       await closeBotSetup(s.id, status, reason, result(st.stop, st.tp1Done));
@@ -101,22 +103,25 @@ async function monitorSetup(
       report.closed.push({ symbol: s.symbol, status });
       return;
     }
-    // Цель без частичной фиксации: позиция закрыта целиком, вести нечего.
-    // tp1_done ставим, чтобы сетап попал в статистику «дошли до цели».
-    if (step.tpHit) {
-      await markBotTp1(s.id);
-      await closeBotSetup(s.id, "TP", "Цель взята — позиция закрыта целиком.",
-        result(s.tp1, false));
-      await broadcastClose(s.id, report);
-      report.closed.push({ symbol: s.symbol, status: "TP" });
-      return;
-    }
     if (step.tp1Hit) {
       await markBotTp1(s.id);
       report.errors.push(...await broadcastText(botTp1Caption(s)));
     }
+    // Цель взята: без частичной фиксации — вся позиция на tp1, с безубытком —
+    // остаток на tpFinal. tp1_done ставим, чтобы сетап попал в «дошли до цели».
+    if (step.tpHit) {
+      const final = s.tpFinal !== null && s.tpFinal > 0;
+      if (!final) await markBotTp1(s.id);
+      await closeBotSetup(s.id, "TP", final
+        ? "Основание наклонки взято — остаток закрыт на второй цели."
+        : "Цель взята — позиция закрыта целиком.",
+      final ? result(s.tpFinal as number, true) : result(s.tp1, false));
+      await broadcastClose(s.id, report);
+      report.closed.push({ symbol: s.symbol, status: "TP" });
+      return;
+    }
   }
-  if (st.moved) await updateBotTrail(s.id, st.stop, st.best);
+  if (st.moved) await updateBotTrail(s.id, st.stop, st.best, st.trailOn);
 
   // Лимит удержания: идея не сработала ни в плюс, ни в минус — освобождаем слот
   const ageHours = (now - new Date(s.createdAt).getTime()) / 3_600_000;
@@ -171,12 +176,14 @@ export async function publishSetup(s: {
   bot: string; symbol: string; direction: BotSetup["direction"];
   entry: number; stop: number; tp1: number; rr1: number;
   activateAt: number; trailAbs: number; tpFull?: boolean;
+  tpFinal?: number | null; // цель остатка после TP1 со стопом в безубытке
   reasons: BotSetup["reasons"]; regime: string;
   // Комиссия биржи бота: входит в риск $3, поэтому определяет объём позиции.
   // По умолчанию Bybit — под него посчитаны первые боты.
   feeRate?: number;
 }, report: BotTickReport, caption: (x: BotSetup) => string): Promise<boolean> {
-  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BYBIT.takerFee);
+  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BYBIT.takerFee,
+    s.tpFinal ?? null);
   if (!plan) {
     report.errors.push(`plan ${s.symbol}: не удалось рассчитать объём и плечо`);
     return false;
@@ -185,7 +192,7 @@ export async function publishSetup(s: {
     bot: s.bot, symbol: s.symbol, direction: s.direction,
     entryPrice: s.entry, stopPrice: s.stop,
     tp1: s.tp1, rr1: s.rr1, activateAt: s.activateAt, trailAbs: s.trailAbs,
-    tpFull: s.tpFull, reasons: s.reasons, regime: s.regime, plan,
+    tpFull: s.tpFull, tpFinal: s.tpFinal ?? null, reasons: s.reasons, regime: s.regime, plan,
   });
   report.newSetups.push(s.symbol);
   report.errors.push(...await broadcastText(caption(setup)));
