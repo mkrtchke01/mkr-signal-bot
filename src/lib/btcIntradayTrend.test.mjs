@@ -6,7 +6,7 @@ import { htfTrend } from "./trendFilters.ts";
 // что EMA-направление не зависит от свингов (их бот Bitcoin intraday не требует)
 const k = (c) => ({ openTime: 0, closeTime: 0, open: c, high: c + 0.5, low: c - 0.5, close: c, volume: 1 });
 
-test("EMA-направление 4h: рост, падение, боковик", () => {
+test("EMA-направление 1h: рост, падение, боковик", () => {
   const up = Array.from({ length: 260 }, (_, i) => k(500 + 0.3 * i + 3 * Math.sin(i / 3)));
   const down = Array.from({ length: 260 }, (_, i) => k(500 - 0.3 * i + 3 * Math.sin(i / 3)));
   const flat = Array.from({ length: 260 }, () => k(100));

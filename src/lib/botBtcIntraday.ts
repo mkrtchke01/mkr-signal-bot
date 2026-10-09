@@ -31,7 +31,7 @@ export const BTC_INTRADAY_DEFAULTS: BotConfig = {
 const CAPTION = {
   head: "₿ BITCOIN INTRADAY",
   note: "⚠️ Стратегия внутридневная: заходим против движения, которое перегрело "
-    + "RSI у суточного уровня, но только в сторону тренда 4h по EMA — то есть "
+    + "RSI у суточного уровня, но только в сторону тренда 1h по EMA — то есть "
     + "покупаем откат в росте и продаём откат в падении. Сделка живёт часы, стоп узкий — "
     + "комиссии съедают заметную долю риска, поэтому смысл есть только при "
     + "высокой доле попаданий.",
@@ -57,7 +57,7 @@ export async function scanBtcIntraday(
 
   const raw = findBtcIntraday(m15, await lastPrice(SYMBOL));
   if (!raw) return;
-  // Тренд 4h по EMA: свечи качаем, только когда сетап уже нашёлся
+  // Тренд 1h по EMA: свечи качаем, только когда сетап уже нашёлся
   const c = confirmIntradayTrend(raw, await closedKlines(SYMBOL, TREND_TF, TREND_BARS));
   if (!c) return; // разворот против тренда — пропускаем
 
