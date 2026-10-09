@@ -463,6 +463,37 @@ label {
   border-radius: var(--r-sm);
 }
 
+/* Заголовок раздела с контролом справа */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.section-head h2 { margin-right: auto; }
+
+/* Галочка с подписью */
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--c-2);
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.check input[type="checkbox"] {
+  width: 16px;
+  min-height: 0;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
 /* ---------- Чипсы и переключатели --------------------------- */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {

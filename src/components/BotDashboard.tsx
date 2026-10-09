@@ -77,6 +77,16 @@ export default function BotDashboard({
   const [trade, setTrade] = useState<string | null>(null);
   const [tab, setTab] = useState<"mine" | "all">("mine");
   const [risk, setRisk] = useState("");
+  // Показывать только сигналы, по которым у меня открыта сделка. Запоминаем
+  // в браузере: это удобство одного зрителя, а не настройка аккаунта.
+  const [onlyMine, setOnlyMine] = useState(false);
+  useEffect(() => {
+    try { setOnlyMine(localStorage.getItem("mkr-only-mine") === "1"); } catch { /* приватный режим */ }
+  }, []);
+  function toggleOnlyMine(v: boolean) {
+    setOnlyMine(v);
+    try { localStorage.setItem("mkr-only-mine", v ? "1" : "0"); } catch { /* приватный режим */ }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -187,9 +197,12 @@ export default function BotDashboard({
   if (!data) return <p className="muted">Загрузка…</p>;
 
   const { config, regime, setups, stats, mine, isAdmin } = data;
-  const active = setups.filter((s) => s.status === "OPEN");
   const history = setups.filter((s) => s.status !== "OPEN");
   const myTrade = new Map(mine.trades.map((t) => [t.setupId, t]));
+  const allActive = setups.filter((s) => s.status === "OPEN");
+  const active = onlyMine
+    ? allActive.filter((s) => myTrade.get(s.id)?.status === "OPEN")
+    : allActive;
   const bySetup = new Map(setups.map((s) => [s.id, s]));
   const myHistory = mine.trades.filter((t) => t.status !== "OPEN");
   const ms = mine.stats;
@@ -331,10 +344,18 @@ export default function BotDashboard({
         )}
       </div>
 
-      <h2>Активные сигналы {active.length ? `(${active.length})` : ""}</h2>
+      <div className="section-head">
+        <h2>Активные сигналы {active.length ? `(${active.length})` : ""}</h2>
+        <label className="check">
+          <input type="checkbox" checked={onlyMine} onChange={(e) => toggleOnlyMine(e.target.checked)} />
+          Только мои открытые сигналы
+        </label>
+      </div>
       {!active.length && (
         <div className="card"><p className="muted">
-          Пока нет активных сигналов. Бот ищет — новые появятся после очередного скана.
+          {onlyMine && allActive.length
+            ? `Открытых сделок на твой капитал нет — всего активных сигналов ${allActive.length}.`
+            : "Пока нет активных сигналов. Бот ищет — новые появятся после очередного скана."}
         </p></div>
       )}
       {active.map((s) => {
