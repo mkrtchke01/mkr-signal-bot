@@ -79,6 +79,8 @@ export interface TraderStats {
   sl: number;
   time: number; // закрыто по лимиту времени
   profitPct: number; // суммарный профит в % с учётом плеча
+  wins: number;    // закрыто в плюс
+  decided: number; // закрыто с известным результатом — база винрейта
 }
 
 export type SignalStatus = "OPEN" | "TP" | "SL" | "TIME";
@@ -187,6 +189,8 @@ export interface BotStats {
   tp1Reached: number;
   profitPct: number;
   profitUsd: number;
+  wins: number;    // закрыто в плюс (по $, у старых сетапов без плана — по %)
+  decided: number; // закрыто с известным результатом — база винрейта
 }
 
 export interface Candle {

@@ -267,12 +267,15 @@ export async function traderStats(ids: string[]): Promise<Map<string, TraderStat
       count(*) FILTER (WHERE status = 'TP')::int AS tp,
       count(*) FILTER (WHERE status = 'SL')::int AS sl,
       count(*) FILTER (WHERE status = 'TIME')::int AS "time",
+      count(*) FILTER (WHERE status <> 'OPEN' AND profit_pct > 0)::int AS wins,
+      count(*) FILTER (WHERE status <> 'OPEN' AND profit_pct IS NOT NULL)::int AS decided,
       coalesce(sum(profit_pct), 0)::float8 AS profit
     FROM signals WHERE trader_id = ANY(${ids}::uuid[])
     GROUP BY trader_id`;
   for (const r of rows) {
     map.set(r.trader_id, {
       total: r.total, open: r.open, tp: r.tp, sl: r.sl, time: r.time, profitPct: r.profit,
+      wins: r.wins, decided: r.decided,
     });
   }
   return map;
@@ -545,6 +548,10 @@ export async function botStats(bot: string): Promise<BotStats> {
       count(*) FILTER (WHERE status = 'TIME')::int AS "time",
       count(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled,
       count(*) FILTER (WHERE tp1_done)::int AS tp1_reached,
+      count(*) FILTER (WHERE status <> 'OPEN'
+        AND coalesce(profit_usd, profit_pct) > 0)::int AS wins,
+      count(*) FILTER (WHERE status <> 'OPEN'
+        AND coalesce(profit_usd, profit_pct) IS NOT NULL)::int AS decided,
       coalesce(sum(profit_pct), 0)::float8 AS profit,
       coalesce(sum(profit_usd), 0)::float8 AS profit_usd
     FROM bot_setups WHERE bot = ${bot}`;
@@ -554,6 +561,7 @@ export async function botStats(bot: string): Promise<BotStats> {
     time: r.time, cancelled: r.cancelled, tp1Reached: r.tp1_reached,
     profitPct: r.profit,
     profitUsd: Math.round(r.profit_usd * 100) / 100,
+    wins: r.wins, decided: r.decided,
   };
 }
 

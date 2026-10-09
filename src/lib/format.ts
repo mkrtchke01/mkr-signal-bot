@@ -108,3 +108,13 @@ export function fmtRR(rr: number | null | undefined): string {
   if (rr === null || rr === undefined || !Number.isFinite(rr) || rr <= 0) return "—";
   return `1:${(Math.round(rr * 10) / 10).toString()}`;
 }
+
+// Винрейт: доля сделок в плюс среди закрытых с результатом, в процентах
+export function winRate(wins: number, decided: number): number | null {
+  return decided > 0 ? (wins / decided) * 100 : null;
+}
+
+export function fmtWinRate(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+  return `${Math.round(v)}%`;
+}

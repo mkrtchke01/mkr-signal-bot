@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { fmtPct } from "@/lib/format";
+import { fmtPct, fmtWinRate, winRate } from "@/lib/format";
 import type { Trader, TraderStats } from "@/lib/types";
 
 type TraderWithStats = Trader & { stats: TraderStats | null };
@@ -73,6 +73,10 @@ export default function Dashboard() {
               <div className="stat"><div className="v pos">{s?.tp ?? 0}</div><div className="l">по тейку</div></div>
               <div className="stat"><div className="v neg">{s?.sl ?? 0}</div><div className="l">по стопу</div></div>
               <div className="stat"><div className="v">{s?.open ?? 0}</div><div className="l">открыто</div></div>
+              <div className="stat">
+                <div className="v">{fmtWinRate(winRate(s?.wins ?? 0, s?.decided ?? 0))}</div>
+                <div className="l">winrate</div>
+              </div>
               <div className="stat">
                 <div className={`v ${profit >= 0 ? "pos" : "neg"}`}>{fmtPct(profit)}</div>
                 <div className="l">профит (×плечо)</div>

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { exitLabel, fmtPct, fmtPrice, ruleLabel } from "@/lib/format";
+import { exitLabel, fmtPct, fmtPrice, fmtWinRate, ruleLabel, winRate } from "@/lib/format";
 import type { BacktestResult, Signal, Trader, TraderStats } from "@/lib/types";
 
 type Full = Trader & { stats: TraderStats | null; signals: Signal[] };
@@ -110,6 +110,10 @@ export default function TraderPage() {
           <div className="stat"><div className="v neg">{s?.sl ?? 0}</div><div className="l">по стопу</div></div>
           <div className="stat"><div className="v">{s?.time ?? 0}</div><div className="l">по времени</div></div>
           <div className="stat"><div className="v">{s?.open ?? 0}</div><div className="l">открыто</div></div>
+          <div className="stat">
+            <div className="v">{fmtWinRate(winRate(s?.wins ?? 0, s?.decided ?? 0))}</div>
+            <div className="l">winrate · {s?.wins ?? 0} из {s?.decided ?? 0} в плюс</div>
+          </div>
           <div className="stat">
             <div className={`v ${profit >= 0 ? "pos" : "neg"}`}>{fmtPct(profit)}</div>
             <div className="l">профит (×плечо)</div>

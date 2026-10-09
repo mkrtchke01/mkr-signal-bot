@@ -6,7 +6,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import TradeModal from "./TradeModal";
-import { expectedRR, fmtMoney, fmtPct, fmtPrice, fmtRR, fmtUsd } from "@/lib/format";
+import {
+  expectedRR, fmtMoney, fmtPct, fmtPrice, fmtRR, fmtUsd, fmtWinRate, winRate,
+} from "@/lib/format";
 import type { BotSetup, BotStats } from "@/lib/types";
 
 interface BotConfig {
@@ -232,6 +234,10 @@ export default function BotDashboard({
         <div className="stats-grid">
           <div className="stat"><div className="v">{stats.total}</div><div className="l">сделок всего</div></div>
           <div className="stat"><div className="v">{stats.tp1Reached}</div><div className="l">дошли до цели</div></div>
+          <div className="stat">
+            <div className="v">{fmtWinRate(winRate(stats.wins, stats.decided))}</div>
+            <div className="l">winrate · {stats.wins} из {stats.decided} в плюс</div>
+          </div>
           <div className="stat"><div className="v pos">{stats.tp}</div><div className="l">по тейку</div></div>
           <div className="stat"><div className="v pos">{stats.trail}</div><div className="l">снял трейлинг</div></div>
           <div className="stat"><div className="v pos">{stats.part}</div><div className="l">плюс по TP1</div></div>

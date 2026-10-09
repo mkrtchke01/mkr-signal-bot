@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { fmtUsd } from "@/lib/format";
+import { fmtUsd, fmtWinRate, winRate } from "@/lib/format";
 import type { BotStats } from "@/lib/types";
 
 interface BotListItem {
@@ -83,6 +83,10 @@ export default function BotsPage() {
                   </span>
                   <span className="chip static">
                     <span className="k">SL</span> <span className="v neg">{s.sl}</span>
+                  </span>
+                  <span className="chip static">
+                    <span className="k">Winrate</span>
+                    <span className="v">{fmtWinRate(winRate(s.wins, s.decided))}</span>
                   </span>
                   <span className="chip static">
                     <span className="k">Активных</span> <span className="v">{s.open}</span>

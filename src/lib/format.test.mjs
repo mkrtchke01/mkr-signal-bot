@@ -21,3 +21,13 @@ test("expectedRR без rr1 считает по уровням для лонга
   assert.equal(expectedRR({ entryPrice: 100, initialStop: 101, tp1: 95 }), 5);
   assert.equal(expectedRR({ entryPrice: 100, initialStop: 100, tp1: 105 }), null);
 });
+
+import { fmtWinRate, winRate } from "./format.ts";
+
+test("винрейт: доля сделок в плюс, без сделок — прочерк", () => {
+  assert.equal(winRate(7, 20), 35);
+  assert.equal(fmtWinRate(winRate(7, 20)), "35%");
+  assert.equal(fmtWinRate(winRate(1, 3)), "33%");
+  assert.equal(winRate(0, 0), null);
+  assert.equal(fmtWinRate(winRate(0, 0)), "—");
+});
