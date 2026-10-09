@@ -122,6 +122,8 @@ export type BotSetupStatus =
 // закрытия считался по тем же цифрам, что ушли в канал.
 export interface TradePlan {
   riskUsd: number;   // потеря на стопе, включая комиссии
+  riskPct?: number;  // риск в % баланса на момент входа (у старых планов нет)
+  balance?: number;  // баланс счёта на момент входа
   feeRate: number;   // тейкерская комиссия биржи, доля
   feeUsd: number;    // ориентировочная комиссия за круг, $
   leverage: number;

@@ -20,14 +20,14 @@ export async function GET(req: NextRequest) {
   const r = resolve(req);
   if (!r) return NextResponse.json({ error: "Неизвестный бот" }, { status: 404 });
   try {
-    const { slug, defaults } = r.rt;
+    const { slug, defaults, riskPct } = r.rt;
     const [config, regime, setups, stats] = await Promise.all([
       getBotConfig(slug, defaults),
       getBotState(slug, "regime"),
       listBotSetups(slug, 60),
       botStats(slug),
     ]);
-    return NextResponse.json({ meta: r.meta, config, regime, setups, stats });
+    return NextResponse.json({ meta: r.meta, config, regime, setups, stats, riskPct });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) }, { status: 500 },
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 }
 
 // POST ?bot=<slug> { action: "toggle" } — вкл/выкл поиск сетапов
-// POST ?bot=<slug> { action: "config", maxActive?, scanMinutes? } — настройки
+// POST ?bot=<slug> { action: "config", scanMinutes? } — настройки
 // POST ?bot=<slug> { action: "scan" } — форс-скан прямо сейчас (только если включён)
 // POST ?bot=<slug> { action: "reset", confirm: "RESET" } — снести историю бота
 export async function POST(req: NextRequest) {
@@ -57,11 +57,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === "config") {
-      const maxActive = Math.max(1, Math.min(10, Number(body.maxActive ?? cfg.maxActive)));
       // Минута — для ботов на одной паре: там скан это один запрос к бирже,
       // зато вход происходит сразу по закрытию свечи
       const scanMinutes = Math.max(1, Math.min(240, Number(body.scanMinutes ?? cfg.scanMinutes)));
-      await saveBotConfig(slug, { ...cfg, maxActive, scanMinutes });
+      await saveBotConfig(slug, { ...cfg, scanMinutes });
       return NextResponse.json({ ok: true });
     }
 

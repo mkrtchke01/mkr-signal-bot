@@ -12,7 +12,7 @@ import {
 import type { BotSetup, BotStats } from "@/lib/types";
 
 interface BotConfig {
-  enabled: boolean; maxActive: number; scanMinutes: number; maxHoldHours: number;
+  enabled: boolean; scanMinutes: number; maxHoldHours: number;
 }
 interface Regime {
   bias: "LONG" | "SHORT" | "NEUTRAL";
@@ -25,6 +25,7 @@ interface BotData {
   regime: Regime | null;
   setups: BotSetup[];
   stats: BotStats;
+  riskPct: number; // риск сделки, % баланса счёта
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -204,16 +205,9 @@ export default function BotDashboard({
           >
             🔍 Сканировать сейчас
           </button>
-          <label className="inline-field">
-            макс. позиций
-            <select
-              value={config.maxActive}
-              disabled={busy}
-              onChange={(e) => post({ action: "config", maxActive: Number(e.target.value) })}
-            >
-              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
+          <span className="muted" style={{ fontSize: 13 }}>
+            риск {data.riskPct}% баланса на сделку · позиций без лимита, пока хватает маржи
+          </span>
           <label className="inline-field">
             скан каждые
             <select
@@ -245,7 +239,7 @@ export default function BotDashboard({
           <div className="stat"><div className="v">{stats.cancelled}</div><div className="l">вручную</div></div>
           <div className="stat">
             <div className={`v ${stats.profitUsd >= 0 ? "pos" : "neg"}`}>{fmtUsd(stats.profitUsd)}</div>
-            <div className="l">итог, $ (риск $3/сделку)</div>
+            <div className="l">итог, $ (риск {data.riskPct}% баланса/сделку)</div>
           </div>
           <div className="stat">
             <div className={`v ${stats.profitPct >= 0 ? "pos" : "neg"}`}>{fmtPct(stats.profitPct)}</div>

@@ -32,7 +32,9 @@ function planLines(p: TradePlan, ex: MarketData): string[] {
     + `· объём ${fmtMoney(p.notional)}`,
     `🧯 Ликвидация ~${fmtPrice(p.liqPrice)} (${p.liqPct.toFixed(2)}% от входа) — `
     + `в ${gap} раза дальше стопа, до неё дело не дойдёт`,
-    `🧾 Риск ${fmtMoney(p.riskUsd)} на сделку — комиссия ${ex.name} `
+    `🧾 Риск ${fmtMoney(p.riskUsd)} на сделку`
+    + (p.riskPct ? ` (${p.riskPct}% баланса ${fmtMoney(p.balance)})` : "")
+    + ` — комиссия ${ex.name} `
     + `(тейкер ${pct3(p.feeRate)} × 2 ≈ ${fmtMoney(p.feeUsd)}) уже учтена`,
   ];
 }

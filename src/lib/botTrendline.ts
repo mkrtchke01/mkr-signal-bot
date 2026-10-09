@@ -24,10 +24,12 @@ import type { BotSetup, Candle, TF } from "./types";
 
 export const TRENDLINE_SLUG = "trendline-break";
 
+// Риск сделки, % баланса счёта
+export const TRENDLINE_RISK_PCT = 1;
+
 export const TRENDLINE_DEFAULTS: BotConfig = {
   enabled: false,
   enabledAt: null,
-  maxActive: 3,
   // Пробой ловится в моменте, поэтому чем чаще скан, тем ближе вход к границе.
   // Пять минут — компромисс: столько же длится самая короткая свеча бота,
   // а один проход это ~120 запросов к BingX.
@@ -95,9 +97,7 @@ async function tfCandles(symbol: string, tf: TF): Promise<{
 export async function scanTrendline(
   slug: string, cfg: BotConfig, report: BotTickReport,
 ): Promise<void> {
-  const active = await activeBotSetups(slug);
-  const slots = cfg.maxActive - active.length;
-  if (slots <= 0) return;
+  // Сколько позиций открыть, решает свободная маржа счёта — её проверяет publishSetup
 
   // Эталон корреляции — один на все монеты, по одному запросу на ТФ
   const btc = new Map<TF, Candle[]>();
@@ -150,9 +150,7 @@ export async function scanTrendline(
   }
 
   const taken = new Set<string>();
-  let published = 0;
   for (const raw of candidates) {
-    if (published >= slots) break;
     // Одна монета — один сигнал за скан, даже если пробой виден на двух ТФ
     if (taken.has(raw.symbol)) continue;
     let c: TrendlineCandidate | null;
@@ -173,6 +171,7 @@ export async function scanTrendline(
       tpFull: ex.tpFull, tpFinal: ex.tpFinal,
       feeRate: BINGX.takerFee,
       reasons: c.reasons,
+      riskPct: TRENDLINE_RISK_PCT,
       regime: `наклонка на ${c.tf}${c.triangle ? " (треугольник)" : ""}: `
         + `тренд ${HTF_OF[c.tf]} ${c.direction === "LONG" ? "вверх" : "вниз"}, `
         + (c.impulse ? `импульс ${(c.impulse.size / c.atr).toFixed(1)} ATR, `
@@ -184,9 +183,6 @@ export async function scanTrendline(
         + `(${c.target === "measured" ? "проекция импульса" : "основание"}) `
         + `${c.rr.toFixed(1)}R (минимум ${MIN_RR}R)`,
     }, report, (s: BotSetup) => botSetupCaption(s, CAPTION));
-    if (ok) {
-      taken.add(c.symbol);
-      published++;
-    }
+    if (ok) taken.add(c.symbol);
   }
 }

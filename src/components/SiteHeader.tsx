@@ -19,6 +19,10 @@ const NAV = [
 
 type Theme = "light" | "dark";
 
+interface AccountInfo { balance: number; start: number; usedMargin: number; free: number }
+
+const usd = (v: number) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 function SunIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9"
@@ -41,6 +45,25 @@ function MoonIcon() {
 export default function SiteHeader() {
   const pathname = usePathname();
   const [theme, setTheme] = useState<Theme | null>(null);
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+
+  // Баланс счёта ботов: обновляем раз в минуту — сделки закрываются кроном
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const res = await fetch("/api/account");
+        if (!res.ok) return;
+        const j = await res.json();
+        if (alive) setAccount(j);
+      } catch {
+        /* шапка без баланса — не повод ломать страницу */
+      }
+    }
+    load();
+    const t = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(t); };
+  }, [pathname]);
 
   // Читаем тему только на клиенте: на сервере её знать неоткуда,
   // а до чтения иконку не рисуем, чтобы не мигала неверной
@@ -85,6 +108,20 @@ export default function SiteHeader() {
             </Link>
           ))}
         </nav>
+
+        {account && (
+          <span
+            className="balance"
+            title={`Старт ${usd(account.start)} · в марже ${usd(account.usedMargin)} · `
+              + `свободно ${usd(account.free)}`}
+          >
+            <span className="balance-k">Баланс</span>
+            <span className={`balance-v ${account.balance >= account.start ? "pos" : "neg"}`}>
+              {usd(account.balance)}
+            </span>
+            <span className="balance-free">свободно {usd(account.free)}</span>
+          </span>
+        )}
 
         <button
           type="button"

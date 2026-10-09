@@ -2,7 +2,7 @@
 // монетам → публикация лучших по силе выноса.
 
 import { lastPrice } from "./bingx";
-import { activeBotSetups, setBotState } from "./db";
+import { setBotState } from "./db";
 import { botSetupCaption } from "./botFormat";
 import { detectRegime } from "./regime";
 import { findBreakout, MAX_HOLD_HOURS, TP1_R } from "./strategyBreakout";
@@ -14,10 +14,12 @@ import type { RegimeInfo } from "./regime";
 
 export const BREAKOUT_SLUG = "breakout-trend";
 
+// Риск сделки, % баланса счёта
+export const BREAKOUT_RISK_PCT = 1;
+
 export const BREAKOUT_DEFAULTS: BotConfig = {
   enabled: false,
   enabledAt: null,
-  maxActive: 3,
   // Окно входа живёт 1–3 часа после закрытия 4h-свечи: сканировать надо часто,
   // иначе окно закроется до следующего скана.
   scanMinutes: 15,
@@ -45,9 +47,7 @@ export async function scanBreakout(
   await setBotState(slug, "regime", regime);
   if (regime.bias === "NEUTRAL") return;
 
-  const active = await activeBotSetups(slug);
-  const slots = cfg.maxActive - active.length;
-  if (slots <= 0) return;
+  // Сколько позиций открыть, решает свободная маржа счёта — её проверяет publishSetup
 
   const { symbols, livePrices } = await pickUniverse(slug, SYMBOL_COOLDOWN_MS, SCAN_UNIVERSE);
   report.scanned = symbols.length;
@@ -70,15 +70,12 @@ export async function scanBreakout(
   }
 
   candidates.sort((a, b) => b.score - a.score);
-  let published = 0;
   for (const c of candidates) {
-    if (published >= slots) break;
-    const ok = await publishSetup({
+    await publishSetup({
       bot: slug, symbol: c.symbol, direction: c.direction,
       entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R,
       activateAt: c.activateAt, trailAbs: c.trailAbs,
-      reasons: c.reasons, regime: regime.note,
+      reasons: c.reasons, regime: regime.note, riskPct: BREAKOUT_RISK_PCT,
     }, report, (s) => botSetupCaption(s, CAPTION));
-    if (ok) published++;
   }
 }

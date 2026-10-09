@@ -16,15 +16,17 @@ import { botCloseCaption, botTp1Caption } from "./botFormat";
 import { broadcastText } from "./telegram";
 import { buildPlan, realizedPnl } from "./money";
 import { BINGX } from "./market";
+import { getAccount } from "./account";
+import { DEFAULT_RISK_PCT, leverageCap, riskUsdFor } from "./money";
 import { trackCandle } from "./track";
 import type { MarketData } from "./market";
 import type { TrackState } from "./track";
 import type { BotSetup } from "./types";
 
+// Сколько позиций держит бот, не ограничено — ограничивает свободная маржа счёта
 export interface BotConfig {
   enabled: boolean;
   enabledAt: string | null; // когда бота запустили в последний раз (ISO)
-  maxActive: number;    // максимум одновременных позиций
   scanMinutes: number;  // как часто искать новые сетапы
   maxHoldHours: number; // дольше не держим — закрываем по рынку
 }
@@ -34,6 +36,7 @@ export interface BotTickReport {
   scanned: number;
   closed: { symbol: string; status: string }[];
   newSetups: string[];
+  skipped: string[]; // сигналы, на которые не хватило свободной маржи
   errors: string[];
 }
 
@@ -42,7 +45,7 @@ export type BotScanner = (
 ) => Promise<void>;
 
 export function emptyReport(): BotTickReport {
-  return { monitored: 0, scanned: 0, closed: [], newSetups: [], errors: [] };
+  return { monitored: 0, scanned: 0, closed: [], newSetups: [], skipped: [], errors: [] };
 }
 
 export async function getBotConfig(slug: string, defaults: BotConfig): Promise<BotConfig> {
@@ -171,23 +174,35 @@ export async function runBotTick(
   return report;
 }
 
-// Публикация сетапа: считает денежный план и рассылает сигнал в каналы.
+// Публикация сетапа: считает денежный план от баланса счёта, проверяет, что
+// на сделку хватает свободной маржи, и рассылает сигнал в каналы.
 export async function publishSetup(s: {
   bot: string; symbol: string; direction: BotSetup["direction"];
   entry: number; stop: number; tp1: number; rr1: number;
   activateAt: number; trailAbs: number; tpFull?: boolean;
   tpFinal?: number | null; // цель остатка после TP1 со стопом в безубытке
   reasons: BotSetup["reasons"]; regime: string;
-  // Комиссия биржи бота: входит в риск $3, поэтому определяет объём позиции.
+  riskPct?: number; // риск сделки в % баланса, по умолчанию DEFAULT_RISK_PCT
+  // Комиссия биржи бота: входит в риск сделки, поэтому определяет объём позиции.
   // По умолчанию BingX — на нём торгуют все боты.
   feeRate?: number;
 }, report: BotTickReport, caption: (x: BotSetup) => string): Promise<boolean> {
-  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BINGX.takerFee,
-    s.tpFinal ?? null);
-  if (!plan) {
+  const acc = await getAccount();
+  const riskPct = s.riskPct ?? DEFAULT_RISK_PCT;
+  const riskUsd = riskUsdFor(acc.balance, riskPct);
+  const built = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BINGX.takerFee,
+    s.tpFinal ?? null, { riskUsd, maxLeverage: leverageCap(s.symbol) });
+  if (!built) {
     report.errors.push(`plan ${s.symbol}: не удалось рассчитать объём и плечо`);
     return false;
   }
+  // Сигнал без маржи под него не публикуем: риск не урезаем, сделку пропускаем
+  if (built.margin > acc.free) {
+    report.skipped.push(`${s.symbol}: нужна маржа $${built.margin.toFixed(2)}, `
+      + `свободно $${acc.free.toFixed(2)} из $${acc.balance.toFixed(2)}`);
+    return false;
+  }
+  const plan = { ...built, riskPct, balance: acc.balance };
   const setup = await insertBotSetup({
     bot: s.bot, symbol: s.symbol, direction: s.direction,
     entryPrice: s.entry, stopPrice: s.stop,

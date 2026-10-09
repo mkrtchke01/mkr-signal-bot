@@ -3,7 +3,7 @@ import { botRuntime } from "@/lib/botRegistry";
 import { closeBotSetup, getBotSetup, reopenBotSetup } from "@/lib/db";
 import { botCloseCaption, botRearmCaption } from "@/lib/botFormat";
 import { BINGX } from "@/lib/market";
-import { buildPlan, realizedPnl } from "@/lib/money";
+import { buildPlan, leverageCap, realizedPnl, RISK_USD } from "@/lib/money";
 import { BTC_INTRADAY_SLUG } from "@/lib/botBtcIntraday";
 import { TRENDLINE_SLUG } from "@/lib/botTrendline";
 import { levelsFromStop, TP1_R } from "@/lib/strategyBreakout";
@@ -94,11 +94,16 @@ export async function POST(
     const tpFull = tl ? tl.tpFull : s.tpFull;
     const tpFinal = tl ? tl.tpFinal : null;
     const plan = buildPlan(s.direction, s.entryPrice, s.initialStop, lv.tp1,
-      marketOf(s.bot).takerFee, tpFinal);
+      marketOf(s.bot).takerFee, tpFinal, {
+        // Позиция на бирже жива: объём и плечо те же, что при входе
+        riskUsd: s.plan?.riskUsd ?? RISK_USD,
+        maxLeverage: s.plan?.leverage ?? leverageCap(s.symbol),
+      });
     if (!plan) {
       return NextResponse.json({ error: "Не удалось пересчитать план" }, { status: 400 });
     }
 
+    if (s.plan?.riskPct) Object.assign(plan, { riskPct: s.plan.riskPct, balance: s.plan.balance });
     const fresh = await reopenBotSetup(id, {
       tp1: lv.tp1, rr1, activateAt: lv.activateAt, trailAbs: lv.trailAbs,
       tpFull, tpFinal,

@@ -1,11 +1,14 @@
 // Денежная модель сделок трейдер-бота (USDT-перпы).
 //
-// Риск фиксирован в долларах, а не в процентах движения цены. От этого пляшет всё:
+// Риск — доля баланса счёта (по умолчанию 1%), а не процент движения цены:
+// баланс $300 → риск $3, вырос до $400 → $4, упал — риск меньше. От этого:
 //  1. Стоп даёт стратегия (он стоит за структурой) → известна дистанция до стопа.
 //  2. Объём позиции подбирается так, чтобы срабатывание стопа стоило ровно
-//     RISK_USD — вместе с комиссиями за вход и выход.
-//  3. Плечо подбирается так, чтобы цена ликвидации была минимум LIQ_SAFETY раз
-//     дальше стопа: стоп всегда срабатывает заметно раньше ликвидации.
+//     риск сделки — вместе с комиссиями за вход и выход.
+//  3. Плечо — максимальное, какое даёт биржа по монете, но такое, чтобы цена
+//     ликвидации была минимум LIQ_SAFETY раз дальше стопа: стоп срабатывает
+//     заметно раньше ликвидации. Чем выше плечо, тем меньше маржи занимает
+//     сделка и тем больше сделок помещается в баланс.
 //
 // Вход и выход — по рынку, поэтому обе стороны считаем по тейкерской комиссии.
 // Комиссия — параметр: боты торгуют на разных биржах, а ставка входит в риск.
@@ -13,12 +16,34 @@
 
 import type { Direction, TradePlan } from "./types";
 
-export const RISK_USD = 3;         // потеря на стопе, включая комиссии
+export const RISK_USD = 3;         // риск сделок, открытых до риска от баланса
+export const DEFAULT_RISK_PCT = 1; // риск на сделку, % баланса
 export const TAKER_FEE = 0.00055;  // Bybit, тейкер 0.055% (вход/выход по рынку)
 export const MAKER_FEE = 0.0001;   // Bybit, мейкер 0.01% (лимитный тейк)
 export const MMR = 0.005;          // маинтенанс-маржа, консервативно 0.5%
 export const LIQ_SAFETY = 2;       // ликвидация не ближе 2× дистанции до стопа
-export const MAX_LEVERAGE = 20;    // потолок даже на очень узких стопах
+export const MAX_LEVERAGE = 20;    // потолок, если биржевой не передан
+
+// Потолок плеча BingX по монете. Публичный API его не отдаёт (только приватный
+// с ключом), поэтому таблица консервативная: биржа даёт не меньше этого.
+// Ниже реального потолка — безопасно: маржи чуть больше, зато ордер встанет.
+const LEVERAGE_100 = new Set(["BTCUSDT", "ETHUSDT"]);
+const LEVERAGE_50 = new Set([
+  "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "ADAUSDT", "LTCUSDT", "LINKUSDT",
+  "AVAXUSDT", "DOTUSDT", "TRXUSDT", "BCHUSDT", "SUIUSDT", "TONUSDT", "NEARUSDT",
+]);
+export function leverageCap(symbol: string): number {
+  const s = symbol.toUpperCase();
+  if (LEVERAGE_100.has(s)) return 100;
+  if (LEVERAGE_50.has(s)) return 50;
+  return 25;
+}
+
+// Риск сделки в $ от текущего баланса
+export function riskUsdFor(balance: number, riskPct: number): number {
+  if (!(balance > 0) || !(riskPct > 0)) return 0;
+  return r2(balance * riskPct / 100);
+}
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 // Маржу округляем вверх: залог не должен оказаться меньше нужного под объём
@@ -35,33 +60,36 @@ function legPnl(
 
 // Максимальное плечо, при котором ликвидация остаётся за стопом:
 // дистанция до ликвидации ≈ 1/L − MMR, требуем её ≥ LIQ_SAFETY × дистанции до стопа.
-export function pickLeverage(stopFrac: number): number {
+export function pickLeverage(stopFrac: number, cap = MAX_LEVERAGE): number {
   const max = 1 / (stopFrac * LIQ_SAFETY + MMR);
-  return Math.max(1, Math.min(MAX_LEVERAGE, Math.floor(max)));
+  return Math.max(1, Math.min(cap, Math.floor(max)));
 }
 
 export function buildPlan(
   direction: Direction, entry: number, stop: number, tp1: number,
   feeRate = TAKER_FEE,
   tpFinal: number | null = null, // остаток после TP1 в безубытке идёт до этой цели
+  opts: { riskUsd?: number; maxLeverage?: number } = {},
 ): TradePlan | null {
+  const riskUsd = opts.riskUsd ?? RISK_USD;
+  if (!(riskUsd > 0)) return null;
   const isLong = direction === "LONG";
   const risk = Math.abs(entry - stop);
   if (!(entry > 0) || !(risk > 0)) return null;
 
   const stopFrac = risk / entry;
   // Стоп = движение цены + комиссии входа и выхода. Решаем относительно qty.
-  const qty = RISK_USD / (risk + feeRate * (entry + stop));
+  const qty = riskUsd / (risk + feeRate * (entry + stop));
   const notional = qty * entry;
   if (!Number.isFinite(qty) || qty <= 0) return null;
 
-  const leverage = pickLeverage(stopFrac);
+  const leverage = pickLeverage(stopFrac, opts.maxLeverage ?? MAX_LEVERAGE);
   const liqFrac = 1 / leverage - MMR;
   const liqPrice = isLong ? entry * (1 - liqFrac) : entry * (1 + liqFrac);
 
   const half1 = legPnl(qty, 0.5, entry, tp1, isLong, feeRate);
   return {
-    riskUsd: RISK_USD,
+    riskUsd: r2(riskUsd),
     feeRate,
     feeUsd: r2(notional * feeRate * 2),
     leverage,

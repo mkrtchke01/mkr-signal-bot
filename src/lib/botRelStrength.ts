@@ -2,7 +2,6 @@
 // за сутки → публикация лучших по силе импульса.
 
 import { lastPrice } from "./bingx";
-import { activeBotSetups } from "./db";
 import { botSetupCaption } from "./botFormat";
 import {
   findRelStrength, H1_BARS, M15_BARS, MAX_HOLD_HOURS, RS_LOOKBACK, RS_THRESHOLD, TP1_R,
@@ -15,10 +14,12 @@ import type { BotSetup } from "./types";
 
 export const RELSTRENGTH_SLUG = "rel-strength";
 
+// Риск сделки, % баланса счёта: у «Силы против BTC» — 3%
+export const RELSTRENGTH_RISK_PCT = 3;
+
 export const RELSTRENGTH_DEFAULTS: BotConfig = {
   enabled: false,
   enabledAt: null,
-  maxActive: 3,
   // Сигнал живёт ровно одну 15-минутную свечу, поэтому сканируем в её такт.
   scanMinutes: 15,
   maxHoldHours: MAX_HOLD_HOURS,
@@ -39,9 +40,7 @@ const CAPTION = {
 export async function scanRelStrength(
   slug: string, cfg: BotConfig, report: BotTickReport,
 ): Promise<void> {
-  const active = await activeBotSetups(slug);
-  const slots = cfg.maxActive - active.length;
-  if (slots <= 0) return;
+  // Сколько позиций открыть, решает свободная маржа счёта — её проверяет publishSetup
 
   // Эталон, с которым сравниваются все монеты
   const btc15 = await closedKlines("BTCUSDT", "15m", M15_BARS);
@@ -68,17 +67,15 @@ export async function scanRelStrength(
   }
 
   candidates.sort((a, b) => b.score - a.score);
-  let published = 0;
   for (const c of candidates) {
-    if (published >= slots) break;
-    const ok = await publishSetup({
+    await publishSetup({
       bot: slug, symbol: c.symbol, direction: c.direction,
       entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R,
       activateAt: c.activateAt, trailAbs: c.trailAbs,
       reasons: c.reasons,
       regime: `обгон BTC за ${RS_LOOKBACK / 4}ч на ${c.edge.toFixed(1)} п.п. `
         + `(порог ${RS_THRESHOLD})`,
+      riskPct: RELSTRENGTH_RISK_PCT,
     }, report, (s: BotSetup) => botSetupCaption(s, CAPTION));
-    if (ok) published++;
   }
 }

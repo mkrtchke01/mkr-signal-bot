@@ -579,3 +579,21 @@ export async function setBotState(bot: string, key: string, value: unknown): Pro
   await sql`INSERT INTO bot_state (key, value) VALUES (${k}, ${JSON.stringify(value)}::jsonb)
     ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(value)}::jsonb`;
 }
+
+// ---- Счёт ботов ----
+
+// Итоги счёта по сетапам, открытым с момента его запуска: реализованный
+// результат закрытых сделок и маржа, которую держат открытые.
+export async function accountTotals(sinceIso: string): Promise<{
+  realized: number; usedMargin: number; open: number; closed: number;
+}> {
+  const sql = await db();
+  const rows = await sql`SELECT
+      coalesce(sum(profit_usd) FILTER (WHERE status <> 'OPEN'), 0)::float8 AS realized,
+      coalesce(sum((plan->>'margin')::float8) FILTER (WHERE status = 'OPEN'), 0)::float8 AS used,
+      count(*) FILTER (WHERE status = 'OPEN')::int AS open,
+      count(*) FILTER (WHERE status <> 'OPEN')::int AS closed
+    FROM bot_setups WHERE created_at >= ${sinceIso}::timestamptz`;
+  const r = rows[0];
+  return { realized: Number(r.realized), usedMargin: Number(r.used), open: r.open, closed: r.closed };
+}

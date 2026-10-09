@@ -281,6 +281,24 @@ b, strong { color: var(--c-1); font-weight: 650; }
 .topnav a[aria-current="page"] { background: var(--elevated); color: var(--c-1); }
 .nav-short { display: none; }
 
+/* Баланс счёта ботов в шапке */
+.balance {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: default;
+}
+.balance-k { color: var(--c-3); }
+.balance-v { font-weight: 700; color: var(--c-1); font-variant-numeric: tabular-nums; }
+.balance-free { color: var(--c-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+
 .theme-toggle {
   flex: none;
   display: grid;
@@ -864,6 +882,8 @@ tbody tr.clickable:hover .link-cell { color: var(--brand-hover); }
   .modal-body { padding: 14px 14px 24px; }
 
   .topbar-inner { height: 56px; gap: 8px; }
+  .balance { padding: 5px 7px; }
+  .balance-k, .balance-free { display: none; }
   .logo { font-size: 15px; }
   .logo-text { display: none; }
   .topnav { gap: 0; }

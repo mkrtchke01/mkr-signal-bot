@@ -3,10 +3,18 @@
 
 import { runBotTick } from "./bot";
 import type { BotConfig, BotScanner, BotTickReport } from "./bot";
-import { BREAKOUT_DEFAULTS, BREAKOUT_SLUG, scanBreakout } from "./botBreakout";
-import { BTC_INTRADAY_DEFAULTS, BTC_INTRADAY_SLUG, scanBtcIntraday } from "./botBtcIntraday";
-import { RELSTRENGTH_DEFAULTS, RELSTRENGTH_SLUG, scanRelStrength } from "./botRelStrength";
-import { TRENDLINE_DEFAULTS, TRENDLINE_SLUG, scanTrendline } from "./botTrendline";
+import {
+  BREAKOUT_DEFAULTS, BREAKOUT_RISK_PCT, BREAKOUT_SLUG, scanBreakout,
+} from "./botBreakout";
+import {
+  BTC_INTRADAY_DEFAULTS, BTC_INTRADAY_RISK_PCT, BTC_INTRADAY_SLUG, scanBtcIntraday,
+} from "./botBtcIntraday";
+import {
+  RELSTRENGTH_DEFAULTS, RELSTRENGTH_RISK_PCT, RELSTRENGTH_SLUG, scanRelStrength,
+} from "./botRelStrength";
+import {
+  TRENDLINE_DEFAULTS, TRENDLINE_RISK_PCT, TRENDLINE_SLUG, scanTrendline,
+} from "./botTrendline";
 import { BINGX } from "./market";
 import type { MarketData } from "./market";
 
@@ -15,21 +23,23 @@ export interface BotRuntime {
   defaults: BotConfig;
   scan: BotScanner;
   market: MarketData; // где бот торгует: свечи сопровождения и комиссии оттуда
+  riskPct: number;    // риск сделки, % баланса счёта
 }
 
 export const BOT_RUNTIMES: BotRuntime[] = [
-  { slug: BREAKOUT_SLUG, defaults: BREAKOUT_DEFAULTS, scan: scanBreakout, market: BINGX },
+  { slug: BREAKOUT_SLUG, defaults: BREAKOUT_DEFAULTS, scan: scanBreakout, market: BINGX,
+    riskPct: BREAKOUT_RISK_PCT },
   {
     slug: RELSTRENGTH_SLUG, defaults: RELSTRENGTH_DEFAULTS,
-    scan: scanRelStrength, market: BINGX,
+    scan: scanRelStrength, market: BINGX, riskPct: RELSTRENGTH_RISK_PCT,
   },
   {
     slug: BTC_INTRADAY_SLUG, defaults: BTC_INTRADAY_DEFAULTS,
-    scan: scanBtcIntraday, market: BINGX,
+    scan: scanBtcIntraday, market: BINGX, riskPct: BTC_INTRADAY_RISK_PCT,
   },
   {
     slug: TRENDLINE_SLUG, defaults: TRENDLINE_DEFAULTS,
-    scan: scanTrendline, market: BINGX,
+    scan: scanTrendline, market: BINGX, riskPct: TRENDLINE_RISK_PCT,
   },
 ];
 
