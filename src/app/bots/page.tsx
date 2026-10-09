@@ -63,44 +63,50 @@ export default function BotsPage() {
                   </span>
                 </div>
                 <p className="hint" style={{ margin: 0, maxWidth: "70ch" }}>{b.short}</p>
-                <div className="chips">
-                  <span className="chip static"><span className="k">Все сигналы</span></span>
-                  <span className="chip static">
-                    <span className="k">Сделок</span> <span className="v">{closed}</span>
-                  </span>
-                  <span className="chip static">
-                    <span className="k">Winrate</span>
-                    <span className="v">{fmtWinRate(winRate(s.wins, s.decided))}</span>
-                  </span>
-                  <span className="chip static">
-                    <span className="k">Итог</span>
-                    <span className={`v ${s.profitR >= 0 ? "pos" : "neg"}`}>{fmtR(s.profitR)}</span>
-                  </span>
-                  <span className="chip static">
-                    <span className="k">Активных</span> <span className="v">{s.open}</span>
-                  </span>
-                </div>
-                <div className="chips" style={{ marginTop: 8 }}>
-                  <span className="chip static"><span className="k">Мои</span></span>
-                  <span className="chip static">
-                    <span className="k">Сделок</span> <span className="v">{ms.taken - ms.open}</span>
-                  </span>
-                  <span className="chip static">
-                    <span className="k">Winrate</span>
-                    <span className="v">{fmtWinRate(winRate(ms.wins, ms.decided))}</span>
-                  </span>
-                  <span className="chip static">
-                    <span className="k">PnL</span>
-                    <span className={`v ${ms.profitUsd >= 0 ? "pos" : "neg"}`}>{fmtUsd(ms.profitUsd)}</span>
-                  </span>
-                  <span className="chip static">
-                    <span className="k">Открыто</span> <span className="v">{ms.open}</span>
-                  </span>
-                  {ms.skipped > 0 && (
-                    <span className="chip static">
-                      <span className="k">Пропущено</span> <span className="v">{ms.skipped}</span>
-                    </span>
-                  )}
+                <div className="stat-panels">
+                  <div className="stat-panel mine">
+                    <div className="stat-panel-title">Мои сделки <span>· в $, на мой капитал</span></div>
+                    <div className="chips">
+                      <span className="chip static">
+                        <span className="k">Сделок</span> <span className="v">{ms.taken - ms.open}</span>
+                      </span>
+                      <span className="chip static">
+                        <span className="k">Winrate</span>
+                        <span className="v">{fmtWinRate(winRate(ms.wins, ms.decided))}</span>
+                      </span>
+                      <span className="chip static">
+                        <span className="k">PnL</span>
+                        <span className={`v ${ms.profitUsd >= 0 ? "pos" : "neg"}`}>{fmtUsd(ms.profitUsd)}</span>
+                      </span>
+                      <span className="chip static">
+                        <span className="k">Активных</span> <span className="v">{ms.open}</span>
+                      </span>
+                      {ms.skipped > 0 && (
+                        <span className="chip static">
+                          <span className="k">Пропущено</span> <span className="v">{ms.skipped}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="stat-panel">
+                    <div className="stat-panel-title">Все сигналы <span>· в R, общая статистика бота</span></div>
+                    <div className="chips">
+                      <span className="chip static">
+                        <span className="k">Сделок</span> <span className="v">{closed}</span>
+                      </span>
+                      <span className="chip static">
+                        <span className="k">Winrate</span>
+                        <span className="v">{fmtWinRate(winRate(s.wins, s.decided))}</span>
+                      </span>
+                      <span className="chip static">
+                        <span className="k">Итог</span>
+                        <span className={`v ${s.profitR >= 0 ? "pos" : "neg"}`}>{fmtR(s.profitR)}</span>
+                      </span>
+                      <span className="chip static">
+                        <span className="k">Активных</span> <span className="v">{s.open}</span>
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </Link>

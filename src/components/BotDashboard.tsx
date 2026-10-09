@@ -299,7 +299,7 @@ export default function BotDashboard({
             <div className={`v ${ms.profitUsd >= 0 ? "pos" : "neg"}`}>{fmtUsd(ms.profitUsd)}</div>
             <div className="l">итог, $ (риск {mine.riskPct}% баланса)</div>
           </div>
-          <div className="stat"><div className="v">{ms.open}</div><div className="l">открыто сейчас</div></div>
+          <div className="stat"><div className="v">{ms.open}</div><div className="l">активных сейчас</div></div>
           <div className="stat"><div className="v">{ms.skipped}</div><div className="l">пропущено — не хватило маржи</div></div>
         </div>
         <div className="actions" style={{ marginTop: 10 }}>

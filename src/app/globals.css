@@ -463,6 +463,31 @@ label {
   border-radius: var(--r-sm);
 }
 
+/* Две панели статистики в карточке бота: мои сделки и все сигналы */
+.stat-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.stat-panel {
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.stat-panel.mine {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+}
+.stat-panel-title {
+  margin-bottom: 8px;
+  color: var(--c-1);
+  font-size: 13px;
+  font-weight: 650;
+}
+.stat-panel-title span { color: var(--c-3); font-weight: 500; }
+
 /* Заголовок раздела с контролом справа */
 .section-head {
   display: flex;
