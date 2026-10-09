@@ -191,8 +191,9 @@ export interface BotStats {
   tp1Reached: number;
   profitPct: number;
   profitUsd: number;
-  wins: number;    // закрыто в плюс (по $, у старых сетапов без плана — по %)
-  decided: number; // закрыто с известным результатом — база винрейта
+  profitR: number;  // итог всех закрытых сигналов в единицах риска
+  wins: number;     // сигналов с итогом > 0R
+  decided: number;  // закрытых с известным выходом — база винрейта
 }
 
 export interface Candle {
@@ -227,4 +228,57 @@ export interface BacktestResult {
     winRate: number; // 0..100: доля закрытых с профитом > 0
     profitPct: number; // сумма % с плечом
   };
+}
+
+// ---- Пользователи ----
+
+export interface User {
+  id: string;
+  email: string;
+  isAdmin: boolean;        // управляет ботами, каналами и конструктором
+  capital: number;         // баланс на момент capitalSetAt, $
+  capitalSetAt: string;    // с этого момента к капиталу прибавляются итоги сделок
+  apiKey: string | null;   // API-ключ BingX (секрет хранится отдельно, зашифрованным)
+  hasSecret: boolean;
+  bingxBalance: number | null;    // баланс фьючерсного счёта при последней проверке
+  bingxCheckedAt: string | null;
+  createdAt: string;
+}
+
+// Участие пользователя в бот-сетапе: свой объём и итог в $
+export type UserTradeStatus = BotSetupStatus | "SKIPPED";
+
+export interface UserTrade {
+  id: string;
+  userId: string;
+  setupId: string;
+  bot: string;
+  status: UserTradeStatus;
+  plan: TradePlan | null;  // null у пропущенных
+  note: string | null;     // почему пропущена
+  profitUsd: number | null;
+  createdAt: string;
+  closedAt: string | null;
+}
+
+export interface UserBotStats {
+  taken: number;    // сделок взято (без пропущенных)
+  open: number;
+  skipped: number;  // не хватило маржи
+  wins: number;
+  decided: number;
+  profitUsd: number;
+}
+
+export interface Invite {
+  code: string;
+  createdAt: string;
+  usedBy: string | null;   // email зарегистрировавшегося
+  usedAt: string | null;
+}
+
+export interface UserBotSetting {
+  bot: string;
+  enabled: boolean;  // торговать этим ботом на мой капитал
+  riskPct: number;   // риск сделки, % баланса
 }

@@ -16,9 +16,6 @@ import type { BotSetup } from "./types";
 
 export const BTC_INTRADAY_SLUG = "btc-intraday";
 
-// Риск сделки, % баланса счёта: у Bitcoin intraday — 5%
-export const BTC_INTRADAY_RISK_PCT = 5;
-
 export const BTC_INTRADAY_DEFAULTS: BotConfig = {
   enabled: false,
   enabledAt: null,
@@ -69,7 +66,6 @@ export async function scanBtcIntraday(
     // трейлинга у стратегии нет: на цели выходим целиком
     activateAt: 0, trailAbs: 0, tpFull: true,
     reasons: c.reasons,
-    riskPct: BTC_INTRADAY_RISK_PCT,
     regime: `RSI(${RSI_PERIOD}) проколол ${c.direction === "SHORT" ? RSI_HIGH : RSI_LOW} `
       + `(${c.rsiAt.toFixed(1)}) у уровня ${c.level.toFixed(1)} `
       + `(свинг-уровни за ${LEVEL_LOOKBACK / 96} суток), по тренду ${TREND_TF} (EMA)`,

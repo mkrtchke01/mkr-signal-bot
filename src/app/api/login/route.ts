@@ -1,17 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
+import { startSession } from "@/lib/auth";
+import { getUserAuth } from "@/lib/dbUsers";
+import { normalizeEmail, verifyPassword } from "@/lib/secrets";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const pass = process.env.APP_PASSWORD;
-  if (!pass) return NextResponse.json({ ok: true });
-  const body = await req.json();
-  if (String(body.password ?? "") !== pass) {
-    return NextResponse.json({ error: "Неверный пароль" }, { status: 401 });
+  try {
+    const body = await req.json().catch(() => ({}));
+    const email = normalizeEmail(body.email);
+    const found = email ? await getUserAuth(email) : null;
+    // Одна и та же ошибка для «нет такого» и «не тот пароль»
+    if (!found || !verifyPassword(String(body.password ?? ""), found.passHash)) {
+      return NextResponse.json({ error: "Неверный email или пароль" }, { status: 401 });
+    }
+    const res = NextResponse.json({ ok: true });
+    await startSession(res, found.user.id);
+    return res;
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : String(e) }, { status: 500 },
+    );
   }
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set("mkr_auth", pass, {
-    httpOnly: true, sameSite: "lax", secure: true, maxAge: 60 * 60 * 24 * 365, path: "/",
-  });
-  return res;
 }

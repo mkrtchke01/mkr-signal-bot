@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { setupR } from "./rMultiple";
 import type {
   BotSetup, BotSetupStatus, BotStats, Direction, ExitRule, Rule,
   Signal, SignalStatus, TF, TradePlan, Trader, TraderConfig, TraderStats,
@@ -148,6 +149,59 @@ export function ensureSchema(): Promise<void> {
         WHERE key IN ('config', 'regime', 'lastScanMs')
            OR key LIKE 'pullback-levels:%'
            OR key LIKE 'prepump:%'`;
+
+      // ---- Пользователи ----
+      await sql`CREATE TABLE IF NOT EXISTS users (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        email text NOT NULL UNIQUE,
+        pass_hash text NOT NULL,
+        is_admin boolean NOT NULL DEFAULT false,
+        capital double precision NOT NULL DEFAULT 0,
+        capital_set_at timestamptz NOT NULL DEFAULT now(),
+        api_key text,
+        api_secret_enc text,
+        bingx_balance double precision,
+        bingx_checked_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`;
+      // В базе — только хеш токена: утечка таблицы не даёт войти
+      await sql`CREATE TABLE IF NOT EXISTS sessions (
+        token_hash text PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz NOT NULL
+      )`;
+      await sql`CREATE TABLE IF NOT EXISTS invites (
+        code text PRIMARY KEY,
+        created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        used_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        used_at timestamptz
+      )`;
+      // Какие боты торгуют капиталом пользователя и с каким риском
+      await sql`CREATE TABLE IF NOT EXISTS user_bots (
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        bot text NOT NULL,
+        enabled boolean NOT NULL DEFAULT false,
+        risk_pct double precision NOT NULL DEFAULT 1,
+        PRIMARY KEY (user_id, bot)
+      )`;
+      // Участие пользователя в сигнале бота: свой объём, плечо и итог в $
+      await sql`CREATE TABLE IF NOT EXISTS user_trades (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        setup_id uuid NOT NULL REFERENCES bot_setups(id) ON DELETE CASCADE,
+        bot text NOT NULL,
+        status text NOT NULL,
+        plan jsonb,
+        note text,
+        profit_usd double precision,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        closed_at timestamptz,
+        UNIQUE (user_id, setup_id)
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_user_trades_user ON user_trades(user_id, bot, created_at DESC)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_user_trades_setup ON user_trades(setup_id)`;
     })().catch((e) => {
       schemaReady = null; // позволить повторить при следующем запросе
       throw e;
@@ -548,20 +602,35 @@ export async function botStats(bot: string): Promise<BotStats> {
       count(*) FILTER (WHERE status = 'TIME')::int AS "time",
       count(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled,
       count(*) FILTER (WHERE tp1_done)::int AS tp1_reached,
-      count(*) FILTER (WHERE status <> 'OPEN'
-        AND coalesce(profit_usd, profit_pct) > 0)::int AS wins,
-      count(*) FILTER (WHERE status <> 'OPEN'
-        AND coalesce(profit_usd, profit_pct) IS NOT NULL)::int AS decided,
       coalesce(sum(profit_pct), 0)::float8 AS profit,
       coalesce(sum(profit_usd), 0)::float8 AS profit_usd
     FROM bot_setups WHERE bot = ${bot}`;
   const r = rows[0];
+  // Общая статистика — в R: у каждого пользователя свой капитал и риск,
+  // поэтому доллары сигнала ни о чём не говорят
+  const closed = await sql`SELECT direction, entry_price, initial_stop, tp1, tp1_done, exit_price
+    FROM bot_setups WHERE bot = ${bot} AND status <> 'OPEN' AND exit_price IS NOT NULL`;
+  let profitR = 0;
+  let winsR = 0;
+  let decidedR = 0;
+  for (const c of closed) {
+    const v = setupR({
+      direction: c.direction, entryPrice: Number(c.entry_price),
+      initialStop: Number(c.initial_stop), tp1: Number(c.tp1),
+      tp1Done: Boolean(c.tp1_done), exitPrice: Number(c.exit_price),
+    });
+    if (v === null) continue;
+    profitR += v;
+    decidedR++;
+    if (v > 0) winsR++;
+  }
   return {
     total: r.total, open: r.open, tp: r.tp, trail: r.trail, part: r.part, sl: r.sl,
     time: r.time, cancelled: r.cancelled, tp1Reached: r.tp1_reached,
     profitPct: r.profit,
     profitUsd: Math.round(r.profit_usd * 100) / 100,
-    wins: r.wins, decided: r.decided,
+    profitR: Math.round(profitR * 100) / 100,
+    wins: winsR, decided: decidedR,
   };
 }
 
@@ -580,20 +649,10 @@ export async function setBotState(bot: string, key: string, value: unknown): Pro
     ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(value)}::jsonb`;
 }
 
-// ---- Счёт ботов ----
 
-// Итоги счёта по сетапам, открытым с момента его запуска: реализованный
-// результат закрытых сделок и маржа, которую держат открытые.
-export async function accountTotals(sinceIso: string): Promise<{
-  realized: number; usedMargin: number; open: number; closed: number;
-}> {
+export async function botSetupsByIds(ids: string[]): Promise<BotSetup[]> {
+  if (!ids.length) return [];
   const sql = await db();
-  const rows = await sql`SELECT
-      coalesce(sum(profit_usd) FILTER (WHERE status <> 'OPEN'), 0)::float8 AS realized,
-      coalesce(sum((plan->>'margin')::float8) FILTER (WHERE status = 'OPEN'), 0)::float8 AS used,
-      count(*) FILTER (WHERE status = 'OPEN')::int AS open,
-      count(*) FILTER (WHERE status <> 'OPEN')::int AS closed
-    FROM bot_setups WHERE created_at >= ${sinceIso}::timestamptz`;
-  const r = rows[0];
-  return { realized: Number(r.realized), usedMargin: Number(r.used), open: r.open, closed: r.closed };
+  const rows = await sql`SELECT * FROM bot_setups WHERE id = ANY(${ids}::uuid[])`;
+  return rows.map(rowToBotSetup);
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isResponse, requireAdmin, requireUser } from "@/lib/auth";
 import { symbolExists } from "@/lib/bingx";
 import { createTrader, listTraders, traderStats } from "@/lib/db";
 import { parseTraderPayload, ValidationError } from "@/lib/validate";
@@ -6,6 +7,8 @@ import { parseTraderPayload, ValidationError } from "@/lib/validate";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const who = await requireUser();
+  if (isResponse(who)) return who;
   try {
     const traders = await listTraders();
     const stats = await traderStats(traders.map((t) => t.id));
@@ -18,6 +21,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const who = await requireAdmin();
+  if (isResponse(who)) return who;
   try {
     const { name, config } = parseTraderPayload(await req.json());
     if (!(await symbolExists(config.symbol))) {

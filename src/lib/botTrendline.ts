@@ -24,9 +24,6 @@ import type { BotSetup, Candle, TF } from "./types";
 
 export const TRENDLINE_SLUG = "trendline-break";
 
-// Риск сделки, % баланса счёта
-export const TRENDLINE_RISK_PCT = 1;
-
 export const TRENDLINE_DEFAULTS: BotConfig = {
   enabled: false,
   enabledAt: null,
@@ -171,7 +168,6 @@ export async function scanTrendline(
       tpFull: ex.tpFull, tpFinal: ex.tpFinal,
       feeRate: BINGX.takerFee,
       reasons: c.reasons,
-      riskPct: TRENDLINE_RISK_PCT,
       regime: `наклонка на ${c.tf}${c.triangle ? " (треугольник)" : ""}: `
         + `тренд ${HTF_OF[c.tf]} ${c.direction === "LONG" ? "вверх" : "вниз"}, `
         + (c.impulse ? `импульс ${(c.impulse.size / c.atr).toFixed(1)} ATR, `

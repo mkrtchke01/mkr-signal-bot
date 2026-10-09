@@ -14,9 +14,6 @@ import type { RegimeInfo } from "./regime";
 
 export const BREAKOUT_SLUG = "breakout-trend";
 
-// Риск сделки, % баланса счёта
-export const BREAKOUT_RISK_PCT = 1;
-
 export const BREAKOUT_DEFAULTS: BotConfig = {
   enabled: false,
   enabledAt: null,
@@ -75,7 +72,7 @@ export async function scanBreakout(
       bot: slug, symbol: c.symbol, direction: c.direction,
       entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R,
       activateAt: c.activateAt, trailAbs: c.trailAbs,
-      reasons: c.reasons, regime: regime.note, riskPct: BREAKOUT_RISK_PCT,
+      reasons: c.reasons, regime: regime.note,
     }, report, (s) => botSetupCaption(s, CAPTION));
   }
 }

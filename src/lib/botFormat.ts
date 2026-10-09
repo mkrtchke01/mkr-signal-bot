@@ -2,7 +2,8 @@
 // всё выставляется один раз сразу после входа и дальше не трогается.
 // Биржа у каждого бота своя — она приходит в CaptionStyle вместе с шапкой.
 
-import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "./format";
+import { fmtPct, fmtPrice } from "./format";
+import { fmtR, setupR } from "./rMultiple";
 import { BINGX } from "./market";
 import type { MarketData } from "./market";
 import type { BotSetup, TradePlan } from "./types";
@@ -24,18 +25,16 @@ function dirBadge(s: BotSetup): string {
   return s.direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
 }
 
-// Блок с плечом, объёмом и ликвидацией — то, что нужно ввести на бирже
+// Плечо и ликвидация — они от размера счёта не зависят. Сумм в долларах
+// в каналах нет: у каждого свой капитал и риск, объём считается от них.
 function planLines(p: TradePlan, ex: MarketData): string[] {
   const gap = p.stopPct > 0 ? (p.liqPct / p.stopPct).toFixed(1) : "—";
   return [
-    `💵 Плечо ×${p.leverage} (изолированная) · маржа ${fmtMoney(p.margin)} `
-    + `· объём ${fmtMoney(p.notional)}`,
+    `💵 Плечо ×${p.leverage} (изолированная) — максимальное безопасное для этого стопа`,
     `🧯 Ликвидация ~${fmtPrice(p.liqPrice)} (${p.liqPct.toFixed(2)}% от входа) — `
     + `в ${gap} раза дальше стопа, до неё дело не дойдёт`,
-    `🧾 Риск ${fmtMoney(p.riskUsd)} на сделку`
-    + (p.riskPct ? ` (${p.riskPct}% баланса ${fmtMoney(p.balance)})` : "")
-    + ` — комиссия ${ex.name} `
-    + `(тейкер ${pct3(p.feeRate)} × 2 ≈ ${fmtMoney(p.feeUsd)}) уже учтена`,
+    `🧾 Объём — под свой риск на сделку (по умолчанию 1% депозита): стоп `
+    + `${p.stopPct.toFixed(2)}% от входа плюс комиссия ${ex.name} тейкер ${pct3(p.feeRate)} × 2`,
   ];
 }
 
@@ -109,21 +108,20 @@ export interface CaptionStyle {
 export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
   const p = s.plan;
   const ex = style.exchange ?? BINGX;
-  const money = (v: number | undefined) => (v === undefined ? "" : ` → ${fmtUsd(v)}`);
   return [
     `${style.head} ${dirBadge(s)} #${s.symbol} — ВХОД СЕЙЧАС`,
     ``,
     `⚡ Вход по рынку: ${fmtPrice(s.entryPrice)} (текущая цена)`,
     `🛑 Стоп: ${fmtPrice(s.initialStop)}`
-      + (p ? ` (${p.stopPct.toFixed(2)}% от входа)` : "") + money(p?.pnl.sl),
+      + (p ? ` (${p.stopPct.toFixed(2)}% от входа)` : ""),
     ...(s.tpFull
-      ? [`🎯 Тейк: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tpFull)} — выход целиком`]
+      ? [`🎯 Тейк: ${fmtPrice(s.tp1)} (${s.rr1}R) — выход целиком`]
       : s.tpFinal ? [
-        `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)} — фикс 50%, стоп в б/у`,
-        `🏁 TP2: ${fmtPrice(s.tpFinal)} (${rrOf(s, s.tpFinal)}R)${money(p?.pnl.final)} `
+        `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R) — фикс 50%, стоп в б/у`,
+        `🏁 TP2: ${fmtPrice(s.tpFinal)} (${rrOf(s, s.tpFinal)}R) `
           + `— остаток целиком`,
       ] : [
-        `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R)${money(p?.pnl.tp1)} — фикс 50%`,
+        `🎯 TP1: ${fmtPrice(s.tp1)} (${s.rr1}R) — фикс 50%`,
         `📈 Остаток: трейлинг с шагом ${fmtPrice(s.trailAbs)}, `
           + (trailAtTp1(s) ? `включается там же` : `включается на ${fmtPrice(s.activateAt)}`),
       ]),
@@ -144,13 +142,11 @@ export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
 }
 
 export function botTp1Caption(s: BotSetup): string {
-  const p = s.plan;
   return [
     `🎯 TP1 ДОСТИГНУТ ${dirBadge(s)} #${s.symbol}`,
-    `Зафиксировано 50% по ${fmtPrice(s.tp1)} (${s.rr1}R)`
-      + (p ? ` → ${fmtUsd(p.pnl.tp1)}` : ""),
+    `Зафиксировано 50% по ${fmtPrice(s.tp1)} (${s.rr1}R)`,
     `Сделка уже в плюсе при любом исходе: даже если остаток выбьет стопом, `
-      + `итог будет${p ? ` ${fmtUsd(p.pnl.part)}` : " положительным"}.`,
+      + `итог будет положительным.`,
     s.tpFinal
       ? `❗ Переставь стоп-лосс на остаток в безубыток: ${fmtPrice(s.entryPrice)}. `
         + `Остаток идёт ко второй цели ${fmtPrice(s.tpFinal)} — тейк там уже стоит.`
@@ -206,10 +202,7 @@ export function botCloseCaption(s: BotSetup): string {
   const lines = [`${head} ${dirBadge(s)} #${s.symbol}`];
   if (s.exitPrice !== null) {
     lines.push(`Вход: ${fmtPrice(s.entryPrice)} → Выход: ${fmtPrice(s.exitPrice)}`);
-    if (s.profitUsd !== null) {
-      lines.push(`💰 Итог: ${fmtUsd(s.profitUsd)}`
-        + (s.plan ? ` (плечо ×${s.plan.leverage}, комиссии учтены)` : ""));
-    }
+    lines.push(`💰 Итог: ${fmtR(setupR(s))} (в единицах риска, без комиссий)`);
     lines.push(`Движение цены: ${fmtPct(s.profitPct)}`);
   }
   if (s.closeReason) lines.push(s.closeReason);

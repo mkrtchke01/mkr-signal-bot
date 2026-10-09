@@ -10,6 +10,12 @@ type TraderWithStats = Trader & { stats: TraderStats | null };
 export default function Dashboard() {
   const [traders, setTraders] = useState<TraderWithStats[] | null>(null);
   const [error, setError] = useState("");
+  // Конструктор общий: создавать, запускать и удалять трейдеров может только админ
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/me").then((r) => r.json()).then((j) => setIsAdmin(Boolean(j.user?.isAdmin))).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -46,11 +52,11 @@ export default function Dashboard() {
 
   return (
     <main>
-      <h1>Мои трейдеры</h1>
+      <h1>Трейдеры</h1>
       {!traders.length && (
         <div className="card">
           <p>Пока нет ни одного трейдера.</p>
-          <Link className="btn primary" href="/new">Создать трейдера</Link>
+          {isAdmin && <Link className="btn primary" href="/new">Создать трейдера</Link>}
         </div>
       )}
       {traders.map((t) => {
@@ -83,15 +89,17 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="actions">
-              <button
-                className={`btn sm ${t.status === "RUNNING" ? "" : "green"}`}
-                onClick={() => toggle(t)}
-              >
-                {t.status === "RUNNING" ? "⏸ Пауза" : "▶ Запустить"}
-              </button>
+              {isAdmin && (
+                <button
+                  className={`btn sm ${t.status === "RUNNING" ? "" : "green"}`}
+                  onClick={() => toggle(t)}
+                >
+                  {t.status === "RUNNING" ? "⏸ Пауза" : "▶ Запустить"}
+                </button>
+              )}
               <Link className="btn sm" href={`/traders/${t.id}`}>Открыть</Link>
-              <Link className="btn sm" href={`/traders/${t.id}/edit`}>Редактировать</Link>
-              <button className="btn sm red" onClick={() => remove(t)}>Удалить</button>
+              {isAdmin && <Link className="btn sm" href={`/traders/${t.id}/edit`}>Редактировать</Link>}
+              {isAdmin && <button className="btn sm red" onClick={() => remove(t)}>Удалить</button>}
             </div>
           </div>
         );

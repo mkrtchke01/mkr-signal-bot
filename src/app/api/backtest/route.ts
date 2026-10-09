@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isResponse, requireAdmin } from "@/lib/auth";
 import { runBacktest } from "@/lib/backtest";
 import { getTrader } from "@/lib/db";
 
@@ -7,6 +8,8 @@ export const maxDuration = 60;
 
 // POST { traderId: string, days: 7 | 30 }
 export async function POST(req: NextRequest) {
+  const who = await requireAdmin();
+  if (isResponse(who)) return who;
   const body = await req.json();
   const days = Number(body.days) === 30 ? 30 : 7;
   const trader = await getTrader(String(body.traderId ?? ""));

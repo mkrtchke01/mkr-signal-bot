@@ -293,8 +293,9 @@ b, strong { color: var(--c-1); font-weight: 650; }
   background: var(--surface);
   font-size: 13px;
   white-space: nowrap;
-  cursor: default;
+  color: var(--c-2);
 }
+.balance:hover { border-color: var(--border-hover); }
 .balance-k { color: var(--c-3); }
 .balance-v { font-weight: 700; color: var(--c-1); font-variant-numeric: tabular-nums; }
 .balance-free { color: var(--c-3); font-size: 12px; font-variant-numeric: tabular-nums; }

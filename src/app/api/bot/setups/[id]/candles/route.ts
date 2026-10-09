@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isResponse, requireUser } from "@/lib/auth";
 import { getBotSetup } from "@/lib/db";
 import { fetchTradeCandles } from "@/lib/tradeChart";
 import { TIMEFRAMES } from "@/lib/types";
@@ -13,6 +14,8 @@ export const maxDuration = 30;
 export async function GET(
   req: NextRequest, { params }: { params: Promise<{ id: string }> },
 ) {
+  const who = await requireUser();
+  if (isResponse(who)) return who;
   try {
     const { id } = await params;
     const q = req.nextUrl.searchParams;

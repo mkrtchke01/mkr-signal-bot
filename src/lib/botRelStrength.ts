@@ -14,9 +14,6 @@ import type { BotSetup } from "./types";
 
 export const RELSTRENGTH_SLUG = "rel-strength";
 
-// Риск сделки, % баланса счёта: у «Силы против BTC» — 3%
-export const RELSTRENGTH_RISK_PCT = 3;
-
 export const RELSTRENGTH_DEFAULTS: BotConfig = {
   enabled: false,
   enabledAt: null,
@@ -75,7 +72,6 @@ export async function scanRelStrength(
       reasons: c.reasons,
       regime: `обгон BTC за ${RS_LOOKBACK / 4}ч на ${c.edge.toFixed(1)} п.п. `
         + `(порог ${RS_THRESHOLD})`,
-      riskPct: RELSTRENGTH_RISK_PCT,
     }, report, (s: BotSetup) => botSetupCaption(s, CAPTION));
   }
 }

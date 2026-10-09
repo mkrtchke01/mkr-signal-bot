@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isResponse, requireAdmin, requireUser } from "@/lib/auth";
 import { symbolExists } from "@/lib/bingx";
 import {
   deleteTrader, getTrader, listSignals, setTraderStatus, traderStats, updateTrader,
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Params) {
+  const who = await requireUser();
+  if (isResponse(who)) return who;
   const { id } = await params;
   const trader = await getTrader(id);
   if (!trader) return NextResponse.json({ error: "Не найден" }, { status: 404 });
@@ -19,6 +22,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
+  const who = await requireAdmin();
+  if (isResponse(who)) return who;
   const { id } = await params;
   try {
     const { name, config } = parseTraderPayload(await req.json());
@@ -42,6 +47,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
 // PATCH { status: "RUNNING" | "PAUSED" }
 export async function PATCH(req: NextRequest, { params }: Params) {
+  const who = await requireAdmin();
+  if (isResponse(who)) return who;
   const { id } = await params;
   const body = await req.json();
   if (body.status !== "RUNNING" && body.status !== "PAUSED") {
@@ -52,6 +59,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
+  const who = await requireAdmin();
+  if (isResponse(who)) return who;
   const { id } = await params;
   await deleteTrader(id);
   return NextResponse.json({ ok: true });

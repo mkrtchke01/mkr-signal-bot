@@ -8,7 +8,8 @@ import TradeChart from "./TradeChart";
 import { expectedRR, fmtDuration, fmtMoney, fmtPct, fmtPrice, fmtRR, fmtUsd } from "@/lib/format";
 import type { TradeChart as ChartData } from "@/lib/tradeChart";
 import type { TradeEvent } from "@/lib/replay";
-import type { BotSetup } from "@/lib/types";
+import { fmtR, setupR } from "@/lib/rMultiple";
+import type { BotSetup, UserTrade } from "@/lib/types";
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "в позиции",
@@ -49,7 +50,7 @@ function outsideUrl(s: BotSetup, exchange: string): string {
 }
 
 export default function TradeModal({ id, onClose }: { id: string; onClose: () => void }) {
-  const [data, setData] = useState<{ setup: BotSetup; chart: ChartData } | null>(null);
+  const [data, setData] = useState<{ setup: BotSetup; chart: ChartData; mine: UserTrade | null } | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -75,6 +76,8 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
 
   const s = data?.setup;
   const chart = data?.chart;
+  const mine = data?.mine ?? null;
+  const r = s ? setupR(s) : null;
 
   const openedMs = s ? new Date(s.filledAt ?? s.createdAt).getTime() : 0;
   const closedMs = s?.closedAt ? new Date(s.closedAt).getTime() : null;
@@ -174,13 +177,21 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
                   <div className="l">движение цены</div>
                 </div>
                 <div className="stat">
-                  <div className={`v ${(s.profitUsd ?? 0) >= 0 ? "pos" : "neg"}`}>
-                    {fmtUsd(s.profitUsd)}
-                  </div>
-                  <div className="l">
-                    итог{s.plan ? ` · ×${s.plan.leverage}, ${fmtMoney(s.plan.notional)}` : ""}
-                  </div>
+                  <div className={`v ${(r ?? 0) >= 0 ? "pos" : "neg"}`}>{fmtR(r)}</div>
+                  <div className="l">итог сигнала</div>
                 </div>
+                {mine && (
+                  <div className="stat">
+                    <div className={`v ${mine.profitUsd === null ? "" : mine.profitUsd >= 0 ? "pos" : "neg"}`}>
+                      {mine.status === "SKIPPED" ? "—" : mine.profitUsd === null ? "в работе" : fmtUsd(mine.profitUsd)}
+                    </div>
+                    <div className="l">
+                      {mine.status === "SKIPPED"
+                        ? (mine.note ?? "пропущено")
+                        : `мой итог${mine.plan ? ` · ×${mine.plan.leverage}, ${fmtMoney(mine.plan.notional)}` : ""}`}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="card-inner">

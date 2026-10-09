@@ -16,8 +16,8 @@ import { botCloseCaption, botTp1Caption } from "./botFormat";
 import { broadcastText } from "./telegram";
 import { buildPlan, realizedPnl } from "./money";
 import { BINGX } from "./market";
-import { getAccount } from "./account";
-import { DEFAULT_RISK_PCT, leverageCap, riskUsdFor } from "./money";
+import { leverageCap, RISK_USD } from "./money";
+import { allocateSetup, settleSetup } from "./userTrades";
 import { trackCandle } from "./track";
 import type { MarketData } from "./market";
 import type { TrackState } from "./track";
@@ -81,6 +81,16 @@ async function monitorSetup(
       : null,
   });
 
+  // Закрытие сигнала: в базе, у всех, кто его торговал, и сообщение в каналы
+  async function finish(
+    status: Exclude<BotSetup["status"], "OPEN">, reason: string, exit: number, tp1Taken: boolean,
+  ): Promise<void> {
+    await closeBotSetup(s.id, status, reason, result(exit, tp1Taken));
+    await settleSetup(s, status, exit, tp1Taken);
+    await broadcastClose(s.id, report);
+    report.closed.push({ symbol: s.symbol, status });
+  }
+
   const since = Math.max(s.lastCheckedMs || 0, new Date(s.createdAt).getTime());
   const candles = await market.fetchKlines(s.symbol, "1m",
     { startTime: since - 60_000, limit: 1000 });
@@ -101,9 +111,7 @@ async function monitorSetup(
           : "Остаток выбит стопом, но половина зафиксирована на TP1 — сделка в плюсе.",
         SL: "Пробой оказался ложным — цена вернулась в диапазон.",
       }[status];
-      await closeBotSetup(s.id, status, reason, result(st.stop, st.tp1Done));
-      await broadcastClose(s.id, report);
-      report.closed.push({ symbol: s.symbol, status });
+      await finish(status, reason, st.stop, st.tp1Done);
       return;
     }
     if (step.tp1Hit) {
@@ -115,12 +123,10 @@ async function monitorSetup(
     if (step.tpHit) {
       const final = s.tpFinal !== null && s.tpFinal > 0;
       if (!final) await markBotTp1(s.id);
-      await closeBotSetup(s.id, "TP", final
+      await finish("TP", final
         ? "Основание наклонки взято — остаток закрыт на второй цели."
         : "Цель взята — позиция закрыта целиком.",
-      final ? result(s.tpFinal as number, true) : result(s.tp1, false));
-      await broadcastClose(s.id, report);
-      report.closed.push({ symbol: s.symbol, status: "TP" });
+      final ? s.tpFinal as number : s.tp1, final);
       return;
     }
   }
@@ -130,11 +136,9 @@ async function monitorSetup(
   const ageHours = (now - new Date(s.createdAt).getTime()) / 3_600_000;
   if (ageHours >= cfg.maxHoldHours && candles.length) {
     const exit = candles[candles.length - 1].close;
-    await closeBotSetup(s.id, "TIME",
+    await finish("TIME",
       `Прошло ${Math.round(ageHours / 24)} дн, цели не достигнуты — выходим по рынку.`,
-      result(exit, st.tp1Done));
-    await broadcastClose(s.id, report);
-    report.closed.push({ symbol: s.symbol, status: "TIME" });
+      exit, st.tp1Done);
     return;
   }
 
@@ -163,7 +167,8 @@ export async function runBotTick(
 
   const lastScanMs = (await getBotState<number>(slug, "lastScanMs")) ?? 0;
   const due = Date.now() - lastScanMs >= cfg.scanMinutes * 60_000;
-  if (cfg.enabled && (due || opts.forceScan)) {
+  // Боты ищут сигналы всегда: торговать ли ими, решает каждый пользователь
+  if (due || opts.forceScan) {
     await setBotState(slug, "lastScanMs", Date.now());
     try {
       await scan(slug, cfg, report);
@@ -174,35 +179,26 @@ export async function runBotTick(
   return report;
 }
 
-// Публикация сетапа: считает денежный план от баланса счёта, проверяет, что
-// на сделку хватает свободной маржи, и рассылает сигнал в каналы.
+// Публикация сигнала: он общий и уходит в каналы всегда, а деньги — у каждого
+// свои: allocateSetup открывает личные сделки тем, кто включил бота.
+// План самого сигнала — эталонный (риск RISK_USD): по нему считаются плечо
+// и ликвидация для каналов, а в долларах сигнал нигде не показывается.
 export async function publishSetup(s: {
   bot: string; symbol: string; direction: BotSetup["direction"];
   entry: number; stop: number; tp1: number; rr1: number;
   activateAt: number; trailAbs: number; tpFull?: boolean;
   tpFinal?: number | null; // цель остатка после TP1 со стопом в безубытке
   reasons: BotSetup["reasons"]; regime: string;
-  riskPct?: number; // риск сделки в % баланса, по умолчанию DEFAULT_RISK_PCT
   // Комиссия биржи бота: входит в риск сделки, поэтому определяет объём позиции.
   // По умолчанию BingX — на нём торгуют все боты.
   feeRate?: number;
 }, report: BotTickReport, caption: (x: BotSetup) => string): Promise<boolean> {
-  const acc = await getAccount();
-  const riskPct = s.riskPct ?? DEFAULT_RISK_PCT;
-  const riskUsd = riskUsdFor(acc.balance, riskPct);
-  const built = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BINGX.takerFee,
-    s.tpFinal ?? null, { riskUsd, maxLeverage: leverageCap(s.symbol) });
-  if (!built) {
-    report.errors.push(`plan ${s.symbol}: не удалось рассчитать объём и плечо`);
+  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BINGX.takerFee,
+    s.tpFinal ?? null, { riskUsd: RISK_USD, maxLeverage: leverageCap(s.symbol) });
+  if (!plan) {
+    report.errors.push(`plan ${s.symbol}: не удалось рассчитать плечо`);
     return false;
   }
-  // Сигнал без маржи под него не публикуем: риск не урезаем, сделку пропускаем
-  if (built.margin > acc.free) {
-    report.skipped.push(`${s.symbol}: нужна маржа $${built.margin.toFixed(2)}, `
-      + `свободно $${acc.free.toFixed(2)} из $${acc.balance.toFixed(2)}`);
-    return false;
-  }
-  const plan = { ...built, riskPct, balance: acc.balance };
   const setup = await insertBotSetup({
     bot: s.bot, symbol: s.symbol, direction: s.direction,
     entryPrice: s.entry, stopPrice: s.stop,
@@ -211,5 +207,6 @@ export async function publishSetup(s: {
   });
   report.newSetups.push(s.symbol);
   report.errors.push(...await broadcastText(caption(setup)));
+  await allocateSetup(setup, report);
   return true;
 }

@@ -1,25 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Если задан APP_PASSWORD — закрываем интерфейс и CRUD-API паролем.
+// Без сессионной куки — на страницу входа (API отвечает 401). Здесь, на edge,
+// базы нет, поэтому проверяется только наличие куки, а сама сессия —
+// в каждом API-обработчике (lib/auth.ts).
 // Крон, вебхук Telegram и og-картинки имеют собственную защиту/должны быть публичны.
 const PUBLIC_PREFIXES = [
   "/api/cron",
   "/api/telegram",
   "/api/og",
   "/api/login",
+  "/api/register",
   "/login",
+  "/register",
   "/_next",
   "/favicon",
 ];
 
+const SESSION_COOKIE = "mkr_session"; // то же имя, что в lib/auth.ts
+
 export function middleware(req: NextRequest) {
-  const pass = process.env.APP_PASSWORD;
-  if (!pass) return NextResponse.next();
   const { pathname } = req.nextUrl;
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
-  if (req.cookies.get("mkr_auth")?.value === pass) return NextResponse.next();
+  if (req.cookies.get(SESSION_COOKIE)?.value) return NextResponse.next();
   if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Нужно войти" }, { status: 401 });
   }
   const url = req.nextUrl.clone();
   url.pathname = "/login";

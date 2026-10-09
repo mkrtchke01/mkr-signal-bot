@@ -10,16 +10,24 @@ import { useEffect, useState } from "react";
 
 // short — подпись для узкого экрана: на 375px четыре полных названия
 // в строку не влезают, а прятать их в горизонтальный скролл незачем
+// admin — только для админа: конструктор и каналы общие на всех
 const NAV = [
-  { href: "/", label: "Трейдеры", short: "Трейдеры" },
-  { href: "/bots", label: "Кастомные боты", short: "Боты" },
-  { href: "/new", label: "Создать", short: "Создать" },
-  { href: "/channels", label: "Каналы", short: "Каналы" },
+  { href: "/bots", label: "Кастомные боты", short: "Боты", admin: false },
+  { href: "/", label: "Трейдеры", short: "Трейдеры", admin: false },
+  { href: "/new", label: "Создать", short: "Создать", admin: true },
+  { href: "/channels", label: "Каналы", short: "Каналы", admin: true },
+  { href: "/profile", label: "Профиль", short: "Профиль", admin: false },
 ];
+// Страницы без сессии: там шапке нечего показывать
+const AUTH_PAGES = ["/login", "/register"];
 
 type Theme = "light" | "dark";
 
-interface AccountInfo { balance: number; start: number; usedMargin: number; free: number }
+interface MeInfo {
+  isAdmin: boolean;
+  capital: number;
+  account: { balance: number; usedMargin: number; free: number };
+}
 
 const usd = (v: number) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -45,17 +53,21 @@ function MoonIcon() {
 export default function SiteHeader() {
   const pathname = usePathname();
   const [theme, setTheme] = useState<Theme | null>(null);
-  const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [me, setMe] = useState<MeInfo | null>(null);
+  const authPage = AUTH_PAGES.some((p) => pathname.startsWith(p));
 
-  // Баланс счёта ботов: обновляем раз в минуту — сделки закрываются кроном
+  // Мой баланс: обновляем раз в минуту — сделки закрываются кроном
   useEffect(() => {
+    if (authPage) return;
     let alive = true;
     async function load() {
       try {
-        const res = await fetch("/api/account");
+        const res = await fetch("/api/me");
+        // Сессия истекла — на вход
+        if (res.status === 401) { window.location.href = "/login"; return; }
         if (!res.ok) return;
         const j = await res.json();
-        if (alive) setAccount(j);
+        if (alive) setMe({ isAdmin: j.user.isAdmin, capital: j.user.capital, account: j.account });
       } catch {
         /* шапка без баланса — не повод ломать страницу */
       }
@@ -63,7 +75,8 @@ export default function SiteHeader() {
     load();
     const t = setInterval(load, 60_000);
     return () => { alive = false; clearInterval(t); };
-  }, [pathname]);
+  }, [pathname, authPage]);
+  const account = me?.account;
 
   // Читаем тему только на клиенте: на сервере её знать неоткуда,
   // а до чтения иконку не рисуем, чтобы не мигала неверной
@@ -85,7 +98,7 @@ export default function SiteHeader() {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <Link href="/" className="logo" aria-label="MKR Signal Bot">
+        <Link href="/bots" className="logo" aria-label="MKR Signal Bot">
           <span className="logo-mark" aria-hidden="true">⚡</span>
           <span className="logo-name" aria-hidden="true">
             MKR<span className="logo-text"> Signal Bot</span>
@@ -93,7 +106,7 @@ export default function SiteHeader() {
         </Link>
 
         <nav className="topnav">
-          {NAV.map((item) => (
+          {!authPage && NAV.filter((item) => !item.admin || me?.isAdmin).map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -109,18 +122,19 @@ export default function SiteHeader() {
           ))}
         </nav>
 
-        {account && (
-          <span
+        {me && account && (
+          <Link
+            href="/profile"
             className="balance"
-            title={`Старт ${usd(account.start)} · в марже ${usd(account.usedMargin)} · `
+            title={`Капитал ${usd(me.capital)} · в марже ${usd(account.usedMargin)} · `
               + `свободно ${usd(account.free)}`}
           >
             <span className="balance-k">Баланс</span>
-            <span className={`balance-v ${account.balance >= account.start ? "pos" : "neg"}`}>
+            <span className={`balance-v ${account.balance >= me.capital ? "pos" : "neg"}`}>
               {usd(account.balance)}
             </span>
             <span className="balance-free">свободно {usd(account.free)}</span>
-          </span>
+          </Link>
         )}
 
         <button

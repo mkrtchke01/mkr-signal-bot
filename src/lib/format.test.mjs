@@ -31,3 +31,17 @@ test("винрейт: доля сделок в плюс, без сделок —
   assert.equal(winRate(0, 0), null);
   assert.equal(fmtWinRate(winRate(0, 0)), "—");
 });
+
+import { fmtR, setupR } from "./rMultiple.ts";
+
+test("итог сигнала в R: целиком, частичная фиксация, вторая цель", () => {
+  const base = { direction: "LONG", entryPrice: 100, initialStop: 98, tp1: 106 };
+  assert.equal(setupR({ ...base, tp1Done: false, exitPrice: 98 }), -1);
+  assert.equal(setupR({ ...base, tp1Done: true, exitPrice: 106 }), 3);
+  assert.equal(setupR({ ...base, tp1Done: true, exitPrice: 100 }), 1.5);
+  assert.equal(setupR({ ...base, tp1Done: true, exitPrice: 110 }), 4);
+  assert.equal(setupR({ direction: "SHORT", entryPrice: 100, initialStop: 101, tp1: 97, tp1Done: false, exitPrice: 97 }), 3);
+  assert.equal(setupR({ ...base, tp1Done: false, exitPrice: null }), null);
+  assert.equal(fmtR(2.5), "+2.5R");
+  assert.equal(fmtR(-1), "−1R");
+});
