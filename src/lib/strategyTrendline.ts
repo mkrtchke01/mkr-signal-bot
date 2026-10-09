@@ -46,12 +46,24 @@
 //     STOP_BUFFER_ATR×ATR. Наторговка считается по закрытым свечам, пробойную
 //     в неё не берём — она ещё формируется.
 //
+// Вход по тренду (trendFilters.ts):
+//  T1. Тренд старшего ТФ (5m → 1h, 15m → 4h, 1h → 1d) в сторону пробоя:
+//      EMA50 за EMA200, цена за EMA50, EMA50 идёт в сторону тренда, а свинги
+//      (HH/HL или LH/LL) ему не противоречат. Проверяет сканер (confirmTrend)
+//      только для найденных пробоев — так не качаем лишние свечи.
+//  T2. Перед основанием наклонки — импульс в сторону пробоя: не меньше
+//      IMPULSE_ATR×ATR, больше половины свечей в его сторону. Наклонка — откат
+//      против импульса, и откат съел не больше MAX_RETRACE хода.
+//  T3. Треугольник: если у отката есть вторая, сходящаяся граница (растущая
+//      поддержка для лонга), сетап считается треугольником и идёт первым.
+//
 // Тейк:
-//  8. Основание наклонки — цена самого первого касания. Линия сходится к цене,
-//     поэтому её основание всегда лежит в сторону пробоя. Как выходить, решает
-//     расстояние до него (trendlineExits.ts): до 3.7R — вся позиция на 3R,
-//     дальше — половина на 3R, стоп в безубыток, остаток до основания.
-//  9. Если от входа до основания меньше MIN_RR риска — сигнал пропускаем.
+//  8. Проекция импульса (measured move): его длина, отложенная от границы
+//     на пробое, но не ближе основания наклонки (цены первого касания) и не
+//     дальше MAX_TARGET_ATR. Как выходить, решает расстояние до цели
+//     (trendlineExits.ts): до 3.7R — вся позиция на 3R, дальше — половина
+//     на 3R, стоп в безубыток, остаток до цели.
+//  9. Если от входа до цели меньше MIN_RR риска — сигнал пропускаем.
 //     Это правило трейдера, и оно же главный фильтр: пробой у самого основания
 //     геометрически не может дать 1:3.
 //
@@ -68,6 +80,10 @@
 import { atrWilder, pearson, sma } from "./indicators";
 import { fmtPrice } from "./format";
 import { SPLIT_FROM_R, TP_R } from "./trendlineExits";
+import {
+  findTriangle, htfTrend, impulseBefore, measuredTarget, pivots, retraceOf,
+} from "./trendFilters";
+import type { HtfTrend, Impulse, Triangle } from "./trendFilters";
 import type { Candle, Direction, TF } from "./types";
 import { TF_MS } from "./types";
 
@@ -121,6 +137,12 @@ export const MAX_STOP_PCT = 8;
 // ни одного сигнала за 8 дней по 40 монетам, а этот ТФ трейдер торгует.
 export const MAX_TARGET_ATR = 12;
 
+// Вход по тренду: наклонка — откат после импульса, пробой — его продолжение.
+export const IMPULSE_LOOKBACK = 40; // в скольких свечах до основания ищем импульс
+export const IMPULSE_ATR = 3;       // импульс — минимум 3 ATR хода
+export const IMPULSE_SHARE = 0.55;  // и больше половины свечей в его сторону
+export const MAX_RETRACE = 0.618;   // откат глубже — это уже смена тренда
+
 /**
  * Пороги сетапа. Существуют как параметры, чтобы исследовательские прогоны
  * гоняли ровно этот код, а не его копию: боевой бот берёт TRENDLINE_PARAMS.
@@ -135,6 +157,10 @@ export interface TrendlineParams {
   volMult: number;
   stopBufferAtr: number;
   minRr: number;
+  requireImpulse: boolean;  // наклонка обязана быть откатом после импульса
+  impulseAtr: number;
+  maxRetrace: number;
+  requireTriangle: boolean; // брать только треугольники (по умолчанию — предпочитать)
 }
 
 export const TRENDLINE_PARAMS: TrendlineParams = {
@@ -147,6 +173,10 @@ export const TRENDLINE_PARAMS: TrendlineParams = {
   volMult: VOL_MULT,
   stopBufferAtr: STOP_BUFFER_ATR,
   minRr: MIN_RR,
+  requireImpulse: true,
+  impulseAtr: IMPULSE_ATR,
+  maxRetrace: MAX_RETRACE,
+  requireTriangle: false,
 };
 
 export interface TrendlineCandidate {
@@ -156,9 +186,10 @@ export interface TrendlineCandidate {
   entry: number;
   stop: number;
   tp: number;
-  rr: number;           // сколько риска до основания наклонки
+  rr: number;           // сколько риска до цели
   atr: number;
-  base: number;         // основание наклонки — цель
+  base: number;         // основание наклонки
+  target: "measured" | "base"; // цель — проекция импульса или основание
   baseTime: number;     // openTime первого касания
   lineAtBreak: number;  // граница уровня на пробойной свече
   touches: number;      // сколько касаний собрала линия
@@ -169,6 +200,10 @@ export interface TrendlineCandidate {
   volMult: number;      // объём пробойной свечи в средних
   corr: number;         // корреляция с BTC на этом ТФ
   fit: number;          // среднее отклонение касаний от линии, в ATR
+  impulse: Impulse | null; // импульс, после которого нарисовалась наклонка
+  retrace: number | null;  // какую долю импульса съел откат
+  triangle: Triangle | null;
+  trend: HtfTrend | null;  // тренд старшего ТФ — заполняет сканер
   signalCandle: number; // openTime пробойной свечи
   reasons: { entry: string; stop: string; tp1: string; trail: string };
 }
@@ -192,21 +227,6 @@ export function corrToBtc(c: Candle[], btc: Candle[], period = CORR_PERIOD): num
   return pearson(a, b);
 }
 
-interface Pivot { i: number; p: number }
-
-/** Свинг-экстремумы одного типа: хай/лой с PIVOT_SIDE свечами по бокам. */
-function pivots(c: Candle[], from: number, to: number, high: boolean): Pivot[] {
-  const out: Pivot[] = [];
-  for (let i = Math.max(from, PIVOT_SIDE); i <= to - PIVOT_SIDE; i++) {
-    let ok = true;
-    for (let j = i - PIVOT_SIDE; j <= i + PIVOT_SIDE && ok; j++) {
-      if (j === i) continue;
-      if (high ? c[j].high >= c[i].high : c[j].low <= c[i].low) ok = false;
-    }
-    if (ok) out.push({ i, p: high ? c[i].high : c[i].low });
-  }
-  return out;
-}
 
 /**
  * Цели от входа и стопа — для возврата в работу сетапа, который бот закрыл
@@ -257,7 +277,7 @@ export function findTrendlineBreak(
   // Пробой вверх ищем по наклонке из хаёв, вниз — из лоёв. Направление задаёт
   // и то, какой стороной свеча должна пересечь границу.
   for (const long of [true, false]) {
-    const pts = pivots(c, from, e, long);
+    const pts = pivots(c, from, e, long, PIVOT_SIDE);
     if (pts.length < p.minTouches) continue;
 
     for (let a = 0; a < pts.length - 1; a++) {
@@ -328,33 +348,53 @@ export function findTrendlineBreak(
         const stopPct = (risk / entry) * 100;
         if (stopPct < MIN_STOP_PCT || stopPct > MAX_STOP_PCT) continue;
 
+        // Импульс перед наклонкой и глубина отката: пробой — продолжение хода
+        const imp = impulseBefore(c, pts[a].i, long, IMPULSE_LOOKBACK);
+        const impOk = imp !== null && imp.size >= p.impulseAtr * atr
+          && imp.share >= IMPULSE_SHARE;
+        const retrace = impOk ? retraceOf(c, imp, e, long) : null;
+        if (p.requireImpulse && (!impOk || retrace === null || retrace > p.maxRetrace)) continue;
+
+        // Вторая граница отката: если она есть, это треугольник
+        const triangle = findTriangle(c, pts[a].i, e, long, lineAt, tol, PIVOT_SIDE);
+        if (p.requireTriangle && !triangle) continue;
+
         const base = touch[0].p;
-        const reward = long ? base - entry : entry - base;
+        const baseReward = long ? base - entry : entry - base;
+        // Цель за пределами дневного хода — сделка упрётся в лимит удержания
+        if (baseReward > MAX_TARGET_ATR * atr) continue;
+        // Цель — проекция импульса от границы, но не ближе основания
+        const tp = impOk && imp
+          ? measuredTarget(long, entry, line, base, imp.size, MAX_TARGET_ATR * atr)
+          : base;
+        const reward = long ? tp - entry : entry - tp;
         const rr = reward / risk;
         if (rr < p.minRr) continue; // 1:3 не выходит — правило трейдера
-        // Цель за пределами дневного хода — сделка упрётся в лимит удержания
-        if (reward > MAX_TARGET_ATR * atr) continue;
 
         const fit = touch.reduce((s, q) => s + Math.abs(q.p - lineAt(q.i)), 0)
           / touch.length / atr;
         // Из нескольких линий берём ту, у которой больше касаний, а при равных
         // касаниях — которая точнее ложится на них.
-        if (best && (best.touches > touch.length
-          || (best.touches === touch.length && best.fit <= fit))) continue;
+        // Треугольник важнее: две сходящиеся границы — более чистый откат.
+        if (best && (Number(!!best.triangle) > Number(!!triangle)
+          || (Number(!!best.triangle) === Number(!!triangle) && (best.touches > touch.length
+            || (best.touches === touch.length && best.fit <= fit))))) continue;
 
         best = {
           symbol, tf,
           direction: long ? "LONG" : "SHORT",
-          entry, stop, tp: base, rr, atr,
-          base, baseTime: c[touch[0].i].openTime,
+          entry, stop, tp, rr, atr,
+          base, target: Math.abs(tp - base) > 1e-12 ? "measured" : "base", baseTime: c[touch[0].i].openTime,
           lineAtBreak: line,
           touches: touch.length,
           spanBars: last - touch[0].i,
           consolBars, consolLow: loC, consolHigh: hiC,
           volMult, corr, fit,
+          impulse: impOk ? imp : null, retrace, triangle, trend: null,
           signalCandle: brk.openTime,
           reasons: reasonsFor({
-            long, tf, line, base, stop, stopPct, rr, atr,
+            long, tf, line, base, tp, stop, stopPct, rr, atr,
+            imp: impOk ? imp : null, retrace, triangle,
             touches: touch.length, span: last - touch[0].i,
             consolBars, loC, hiC, volMult, corr, p,
           }),
@@ -366,20 +406,38 @@ export function findTrendlineBreak(
 }
 
 function reasonsFor(x: {
-  long: boolean; tf: TF; line: number; base: number; stop: number; stopPct: number;
+  long: boolean; tf: TF; line: number; base: number; tp: number; stop: number; stopPct: number;
+  imp: Impulse | null; retrace: number | null; triangle: Triangle | null;
   rr: number; atr: number; touches: number; span: number; consolBars: number;
   loC: number; hiC: number; volMult: number; corr: number; p: TrendlineParams;
 }): TrendlineCandidate["reasons"] {
   const side = x.long ? "сопротивления" : "поддержки";
+  const way = x.long ? "вверх" : "вниз";
+  const measured = Math.abs(x.tp - x.base) > 1e-12;
+  const impulse = x.imp
+    ? `Перед наклонкой был импульс ${way}: ${fmtPrice(x.imp.start)} → ${fmtPrice(x.imp.end)} `
+      + `за ${x.imp.bars} свечей (${(x.imp.size / x.atr).toFixed(1)} ATR), откат съел `
+      + `${Math.round((x.retrace ?? 0) * 100)}% хода (предел ${Math.round(x.p.maxRetrace * 100)}%) — `
+      + `наклонка это откат, пробой продолжает импульс. `
+    : "";
+  const triangle = x.triangle
+    ? `Вторая граница отката — ${x.long ? "растущая поддержка по лоям" : "падающее сопротивление по хаям"} `
+      + `(${x.triangle.touches} касания, сейчас ${fmtPrice(x.triangle.supportAtBreak)}): это треугольник, `
+      + `пробой случился до его вершины. `
+    : "";
+  const target = measured
+    ? `проекция импульса ${fmtPrice(x.tp)} — длина импульса, отложенная от границы пробоя `
+      + `(основание наклонки ${fmtPrice(x.base)} ближе)`
+    : `основание наклонки ${fmtPrice(x.base)} — точка, с которой линию начали рисовать`;
   return {
-    entry: `пробой наклонного ${side} на ${x.tf}. Линия собрала ${x.touches} касания `
+    entry: `пробой наклонного ${side} на ${x.tf} по тренду. ${impulse}${triangle}`
+      + `Линия собрала ${x.touches} касания `
       + `за ${x.span} свечей, первые два отработали сильными откатами в обратную `
       + `сторону. После последнего касания ${x.consolBars} свечей наторговки `
       + `в ${fmtPrice(x.loC)}–${fmtPrice(x.hiC)} — цена перестала откатывать `
       + `и упёрлась в границу ${fmtPrice(x.line)}. Текущая свеча начала `
       + `пересекать границу, объём набирается в ${x.volMult.toFixed(1)} раза `
-      + `быстрее обычного — заходим по рынку прямо сейчас, у самой границы: `
-      + `цель фиксирована, и каждый процент до входа съедает и её, и стоп. `
+      + `быстрее обычного — заходим по рынку прямо сейчас, у самой границы. `
       + `Корреляция с BTC ${x.corr.toFixed(2)} (порог ${MAX_CORR}) — монета идёт `
       + `своим движением, а не за биткоином`,
     stop: `за наторговку: ${fmtPrice(x.stop)} (${x.stopPct.toFixed(2)}% от входа) — `
@@ -387,17 +445,37 @@ function reasonsFor(x: {
       + `${x.long ? "под минимумом" : "над максимумом"} скопления. Цена вернулась `
       + `в диапазон наторговки — пробой ложный, идею опровергли`,
     tp1: x.rr > SPLIT_FROM_R
-      ? `${TP_R}R: фиксируем половину и переносим стоп в безубыток. Основание `
-        + `наклонки ${fmtPrice(x.base)} (точка, с которой линию начали рисовать) `
-        + `лежит в ${x.rr.toFixed(1)}R — дальше ${SPLIT_FROM_R}R, поэтому остаток `
-        + `ведём до него`
-      : `${TP_R}R: выходим целиком. Основание наклонки ${fmtPrice(x.base)} `
-        + `лежит в ${x.rr.toFixed(1)}R — не дальше ${SPLIT_FROM_R}R, делить `
-        + `позицию незачем. Сетапы, где до основания меньше ${x.p.minRr}R, `
-        + `стратегия пропускает`,
+      ? `${TP_R}R: фиксируем половину и переносим стоп в безубыток. Цель — ${target}, `
+        + `до неё ${x.rr.toFixed(1)}R — дальше ${SPLIT_FROM_R}R, поэтому остаток ведём до неё`
+      : `${TP_R}R: выходим целиком. Цель — ${target}, до неё ${x.rr.toFixed(1)}R — `
+        + `не дальше ${SPLIT_FROM_R}R, делить позицию незачем. Сетапы, где до цели `
+        + `меньше ${x.p.minRr}R, стратегия пропускает`,
     trail: x.rr > SPLIT_FROM_R
-      ? `трейлинга нет — после ${TP_R}R остаток в безубытке идёт до основания `
-        + `наклонки ${fmtPrice(x.base)}`
+      ? `трейлинга нет — после ${TP_R}R остаток в безубытке идёт до ${fmtPrice(x.tp)}`
       : `трейлинга нет — позиция закрывается целиком на тейке или на стопе`,
+  };
+}
+
+/**
+ * Тренд старшего ТФ для найденного пробоя: сетап берём, только если тренд
+ * в сторону пробоя. Отдельно от findTrendlineBreak, чтобы свечи старшего ТФ
+ * качать лишь по монетам, где пробой уже нашёлся.
+ */
+export function confirmTrend(
+  cand: TrendlineCandidate, htf: Candle[], htfTf: TF,
+): TrendlineCandidate | null {
+  const t = htfTrend(htf);
+  if (t.dir !== cand.direction) return null;
+  const swing = t.swing === "flat"
+    ? "свинги без нового экстремума против тренда"
+    : t.swing === "up" ? "свинги растут (HH/HL)" : "свинги падают (LH/LL)";
+  const note = `Тренд ${htfTf} — ${cand.direction === "LONG" ? "вверх" : "вниз"}: `
+    + `EMA${t.fastP} ${fmtPrice(t.fast)} ${cand.direction === "LONG" ? "выше" : "ниже"} `
+    + `EMA${t.slowP} ${fmtPrice(t.slow)}, цена за быстрой EMA и та идёт в сторону тренда, `
+    + `${swing}. `;
+  return {
+    ...cand,
+    trend: t,
+    reasons: { ...cand.reasons, entry: note + cand.reasons.entry },
   };
 }

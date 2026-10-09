@@ -10,8 +10,9 @@ import { lastPrice, symbolsByVolume } from "./bingx";
 import { BINGX } from "./market";
 import { activeBotSetups, listBotSetups } from "./db";
 import { botSetupCaption } from "./botFormat";
+import { HTF_BARS, HTF_OF } from "./trendFilters";
 import {
-  BARS, findTrendlineBreak, MAX_CORR, MAX_HOLD_HOURS, MIN_QUOTE_VOLUME,
+  BARS, confirmTrend, findTrendlineBreak, MAX_CORR, MAX_HOLD_HOURS, MIN_QUOTE_VOLUME,
   MIN_RR, MIN_TOUCHES, TRENDLINE_TFS,
 } from "./strategyTrendline";
 import { publishSetup } from "./bot";
@@ -48,7 +49,7 @@ const CAPTION = {
   head: "📐 ПРОБОЙ НАКЛОНКИ",
   note: "⚠️ Вход в моменте пробоя, поэтому цена в сигнале живёт недолго: "
     + "заходить имеет смысл сразу, а если цена уже вернулась за границу уровня — "
-    + "сигнал пропустить. Цель далёкая (от 3R), в плюс закрывается меньшая часть "
+    + "сигнал пропустить. Вход только по тренду старшего ТФ, после импульса. Цель далёкая (от 3R), в плюс закрывается меньшая часть "
     + "сделок — смысл есть только на дистанции. Если до основания наклонки дальше "
     + "3.7R — на 3R фиксируем половину и переносим стоп в безубыток.",
   exchange: BINGX,
@@ -127,16 +128,41 @@ export async function scanTrendline(
     }));
   }
 
-  // Сначала линии с большим числом касаний, при равных — те, что точнее легли
-  // на них. Дальше — как решил перебор внутри стратегии.
-  candidates.sort((a, b) => (b.touches - a.touches) || (a.fit - b.fit));
+  // Сначала треугольники, потом линии с большим числом касаний, при равных —
+  // те, что точнее легли на них.
+  candidates.sort((a, b) => (Number(!!b.triangle) - Number(!!a.triangle))
+    || (b.touches - a.touches) || (a.fit - b.fit));
+
+  // Тренд старшего ТФ: свечи качаем только для найденных пробоев, их единицы
+  const htfCache = new Map<string, Candle[]>();
+  async function withTrend(c: TrendlineCandidate): Promise<TrendlineCandidate | null> {
+    const htfTf = HTF_OF[c.tf];
+    if (!htfTf) return null;
+    const key = `${c.symbol}:${htfTf}`;
+    let htf = htfCache.get(key);
+    if (!htf) {
+      const raw = await BINGX.fetchKlines(c.symbol, htfTf, { limit: HTF_BARS + 1 });
+      if (raw.length && raw[raw.length - 1].closeTime > Date.now()) raw.pop();
+      htf = raw;
+      htfCache.set(key, htf);
+    }
+    return confirmTrend(c, htf, htfTf);
+  }
 
   const taken = new Set<string>();
   let published = 0;
-  for (const c of candidates) {
+  for (const raw of candidates) {
     if (published >= slots) break;
     // Одна монета — один сигнал за скан, даже если пробой виден на двух ТФ
-    if (taken.has(c.symbol)) continue;
+    if (taken.has(raw.symbol)) continue;
+    let c: TrendlineCandidate | null;
+    try {
+      c = await withTrend(raw);
+    } catch (e) {
+      report.errors.push(`trend ${raw.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    if (!c) continue; // пробой против тренда старшего ТФ
     // До 3.7R — целиком на 3R, дальше — половина на 3R и остаток до основания
     const ex = trendlineExits(c.direction, c.entry, c.stop, c.rr);
     if (!ex) continue;
@@ -147,10 +173,15 @@ export async function scanTrendline(
       tpFull: ex.tpFull, tpFinal: ex.tpFinal,
       feeRate: BINGX.takerFee,
       reasons: c.reasons,
-      regime: `наклонка на ${c.tf}: ${c.touches} касания (минимум ${MIN_TOUCHES}) `
+      regime: `наклонка на ${c.tf}${c.triangle ? " (треугольник)" : ""}: `
+        + `тренд ${HTF_OF[c.tf]} ${c.direction === "LONG" ? "вверх" : "вниз"}, `
+        + (c.impulse ? `импульс ${(c.impulse.size / c.atr).toFixed(1)} ATR, `
+          + `откат ${Math.round((c.retrace ?? 0) * 100)}%, ` : "")
+        + `${c.touches} касания (минимум ${MIN_TOUCHES}) `
         + `за ${c.spanBars} свечей, наторговка ${c.consolBars} свечей у границы, `
         + `объём на пробое ×${c.volMult.toFixed(1)}, корреляция с BTC `
-        + `${c.corr.toFixed(2)} (порог ${MAX_CORR}), до основания `
+        + `${c.corr.toFixed(2)} (порог ${MAX_CORR}), до цели `
+        + `(${c.target === "measured" ? "проекция импульса" : "основание"}) `
         + `${c.rr.toFixed(1)}R (минимум ${MIN_RR}R)`,
     }, report, (s: BotSetup) => botSetupCaption(s, CAPTION));
     if (ok) {
