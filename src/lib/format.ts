@@ -88,3 +88,20 @@ export function fmtDuration(ms: number): string {
   if (h < 48) return `${h.toFixed(1)} ч`;
   return `${(h / 24).toFixed(1)} дн`;
 }
+
+// Ожидаемое соотношение риск/прибыль сетапа: сколько стопов до цели.
+// Берём записанное ботом rr1, а у старых записей без него — считаем по уровням.
+export function expectedRR(s: {
+  entryPrice: number; initialStop: number; tp1: number; rr1?: number | null;
+}): number | null {
+  if (s.rr1 && s.rr1 > 0) return s.rr1;
+  const risk = Math.abs(s.entryPrice - s.initialStop);
+  if (!(risk > 0) || !Number.isFinite(s.tp1)) return null;
+  return Math.abs(s.tp1 - s.entryPrice) / risk;
+}
+
+// «1:3», «1:2.5» — риск всегда единица, цель в стопах
+export function fmtRR(rr: number | null | undefined): string {
+  if (rr === null || rr === undefined || !Number.isFinite(rr) || rr <= 0) return "—";
+  return `1:${(Math.round(rr * 10) / 10).toString()}`;
+}

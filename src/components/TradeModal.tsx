@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import TradeChart from "./TradeChart";
-import { fmtDuration, fmtMoney, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
+import { expectedRR, fmtDuration, fmtMoney, fmtPct, fmtPrice, fmtRR, fmtUsd } from "@/lib/format";
 import type { TradeChart as ChartData } from "@/lib/tradeChart";
 import type { TradeEvent } from "@/lib/replay";
 import type { BotSetup } from "@/lib/types";
@@ -88,6 +88,9 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
               <span className="sym">#{s.symbol}</span>
               <span className={`badge ${s.direction.toLowerCase()}`}>{s.direction}</span>
               <span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
+              <span className="badge time" title="Ожидаемое риск/прибыль">
+                RR {fmtRR(expectedRR(s))}
+              </span>
               {chart && (
                 <span className="muted" style={{ fontSize: 13 }}>
                   {chart.exchange} · свечи {chart.tf}
@@ -126,6 +129,10 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
                 <div className="stat">
                   <div className="v pos">{fmtPrice(s.tp1)}</div>
                   <div className="l">{s.tpFull ? "тейк" : `TP1 · ${s.rr1}R`}</div>
+                </div>
+                <div className="stat">
+                  <div className="v">{fmtRR(expectedRR(s))}</div>
+                  <div className="l">ожидаемый RR · риск/прибыль</div>
                 </div>
                 <div className="stat">
                   <div className="v">{fmtPrice(s.stopPrice)}</div>

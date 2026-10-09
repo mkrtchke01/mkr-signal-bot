@@ -6,7 +6,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import TradeModal from "./TradeModal";
-import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "@/lib/format";
+import { expectedRR, fmtMoney, fmtPct, fmtPrice, fmtRR, fmtUsd } from "@/lib/format";
 import type { BotSetup, BotStats } from "@/lib/types";
 
 interface BotConfig {
@@ -277,6 +277,9 @@ export default function BotDashboard({
               <span className={`badge ${s.direction.toLowerCase()}`}>{s.direction}</span>
               <span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
               {s.tp1Done && <span className="badge tp">TP1 взят — сделка в плюсе</span>}
+              <span className="badge time" title="Ожидаемое риск/прибыль">
+                RR {fmtRR(expectedRR(s))}
+              </span>
               {s.trailOn && (
                 <span className="badge tp">трейлинг ведёт от {fmtPrice(s.bestPrice)}</span>
               )}
@@ -411,7 +414,7 @@ export default function BotDashboard({
             <thead>
               <tr>
                 <th>Монета</th><th>Напр.</th><th>Статус</th><th>Вход</th>
-                <th>Выход</th><th>Плечо</th><th>Итог, $</th><th>Движение</th>
+                <th>Выход</th><th title="Ожидаемое риск/прибыль: сколько стопов до цели">RR</th><th>Плечо</th><th>Итог, $</th><th>Движение</th>
                 <th>Открыт</th><th>Закрыт</th><th></th>
               </tr>
             </thead>
@@ -423,6 +426,7 @@ export default function BotDashboard({
                   <td><span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span></td>
                   <td>{fmtPrice(s.entryPrice)}</td>
                   <td>{fmtPrice(s.exitPrice)}</td>
+                  <td>{fmtRR(expectedRR(s))}</td>
                   <td className="muted">{s.plan ? `×${s.plan.leverage}` : "—"}</td>
                   <td className={s.profitUsd === null ? "" : s.profitUsd >= 0 ? "pos" : "neg"}>
                     {fmtUsd(s.profitUsd)}
