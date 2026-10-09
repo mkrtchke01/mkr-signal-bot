@@ -40,10 +40,16 @@
 // разницы, но безубыточная комиссия здесь 0.0045% за сторону — до неё далеко
 // даже мейкеру.
 //
+//  6. Вход по тренду: сетап берём, только если EMA 4h смотрят в его сторону
+//     (EMA50 за EMA200, цена за EMA50, EMA50 идёт в сторону тренда) —
+//     confirmIntradayTrend. Против тренда разворот от уровня не играем.
+//     Цифры выше считались до этого фильтра.
+//
 // ⚠️ СТАТУС: преимущества на истории не показывает. Бот выключен по умолчанию.
 
 import { atrWilder, rsi } from "./indicators";
 import { fmtPrice } from "./format";
+import { HTF_BARS, htfTrend } from "./trendFilters";
 import type { Candle, Direction } from "./types";
 
 export const SYMBOL = "BTCUSDT";
@@ -294,4 +300,28 @@ export function findBtcIntraday(
     signalCandle: m15[e].openTime,
     reasons,
   };
+}
+
+// Вход по тренду: разворот от уровня берём только в сторону тренда старшего
+// ТФ по EMA. В восходящем тренде прокол RSI вниз у уровня — это откат, его
+// и покупаем; прокол вверх против тренда пропускаем. Зеркально для шорта.
+export const TREND_TF = "4h" as const;   // старший ТФ для 15m
+export const TREND_BARS = HTF_BARS;      // хватает на EMA200 с прогревом
+
+/**
+ * Пропускает сетап, только если EMA старшего ТФ смотрят в его сторону:
+ * EMA50 за EMA200, цена за EMA50, EMA50 идёт в сторону тренда.
+ * Свинги здесь не требуем — правило трейдера только про EMA.
+ */
+export function confirmIntradayTrend(
+  cand: IntradayCandidate, htf: Candle[],
+): IntradayCandidate | null {
+  const t = htfTrend(htf);
+  if (t.emaDir !== cand.direction) return null;
+  const long = cand.direction === "LONG";
+  const note = `По тренду ${TREND_TF}: EMA${t.fastP} ${fmtPrice(t.fast)} `
+    + `${long ? "выше" : "ниже"} EMA${t.slowP} ${fmtPrice(t.slow)}, цена `
+    + `${long ? "над" : "под"} быстрой EMA и та ${long ? "растёт" : "падает"} — `
+    + `разворот от уровня играем как откат в тренде. `;
+  return { ...cand, reasons: { ...cand.reasons, entry: note + cand.reasons.entry } };
 }

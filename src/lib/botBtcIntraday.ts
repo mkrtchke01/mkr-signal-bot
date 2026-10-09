@@ -6,7 +6,7 @@ import { lastPrice } from "./bybit";
 import { activeBotSetups, getBotState, setBotState } from "./db";
 import { botSetupCaption } from "./botFormat";
 import {
-  findBtcIntraday, LEVEL_LOOKBACK, M15_BARS, MAX_HOLD_HOURS, RSI_HIGH, RSI_LOW,
+  confirmIntradayTrend, findBtcIntraday, TREND_BARS, TREND_TF, LEVEL_LOOKBACK, M15_BARS, MAX_HOLD_HOURS, RSI_HIGH, RSI_LOW,
   RSI_PERIOD, SYMBOL, TP_R,
 } from "./strategyBtcIntraday";
 import { publishSetup } from "./bot";
@@ -30,8 +30,9 @@ export const BTC_INTRADAY_DEFAULTS: BotConfig = {
 
 const CAPTION = {
   head: "₿ BITCOIN INTRADAY",
-  note: "⚠️ Стратегия контртрендовая и внутридневная: заходим против движения, "
-    + "которое перегрело RSI у суточного уровня. Сделка живёт часы, стоп узкий — "
+  note: "⚠️ Стратегия внутридневная: заходим против движения, которое перегрело "
+    + "RSI у суточного уровня, но только в сторону тренда 4h по EMA — то есть "
+    + "покупаем откат в росте и продаём откат в падении. Сделка живёт часы, стоп узкий — "
     + "комиссии съедают заметную долю риска, поэтому смысл есть только при "
     + "высокой доле попаданий.",
 };
@@ -54,8 +55,11 @@ export async function scanBtcIntraday(
   if (candle <= seen) return;
   await setBotState(slug, "lastCandle", candle);
 
-  const c = findBtcIntraday(m15, await lastPrice(SYMBOL));
-  if (!c) return;
+  const raw = findBtcIntraday(m15, await lastPrice(SYMBOL));
+  if (!raw) return;
+  // Тренд 4h по EMA: свечи качаем, только когда сетап уже нашёлся
+  const c = confirmIntradayTrend(raw, await closedKlines(SYMBOL, TREND_TF, TREND_BARS));
+  if (!c) return; // разворот против тренда — пропускаем
 
   await publishSetup({
     bot: slug, symbol: c.symbol, direction: c.direction,
@@ -65,6 +69,6 @@ export async function scanBtcIntraday(
     reasons: c.reasons,
     regime: `RSI(${RSI_PERIOD}) проколол ${c.direction === "SHORT" ? RSI_HIGH : RSI_LOW} `
       + `(${c.rsiAt.toFixed(1)}) у уровня ${c.level.toFixed(1)} `
-      + `(свинг-уровни за ${LEVEL_LOOKBACK / 96} суток)`,
+      + `(свинг-уровни за ${LEVEL_LOOKBACK / 96} суток), по тренду ${TREND_TF} (EMA)`,
   }, report, (s: BotSetup) => botSetupCaption(s, CAPTION));
 }
