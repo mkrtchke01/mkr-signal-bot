@@ -2,7 +2,7 @@
 // Вселенной здесь нет — стратегия работает только на BTCUSDT 15m, поэтому
 // вместо перебора монет бот просто разбирает каждую закрытую 15m-свечу.
 
-import { lastPrice } from "./bybit";
+import { lastPrice } from "./bingx";
 import { activeBotSetups, getBotState, setBotState } from "./db";
 import { botSetupCaption } from "./botFormat";
 import {

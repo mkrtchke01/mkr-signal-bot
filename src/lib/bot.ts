@@ -15,7 +15,7 @@ import {
 import { botCloseCaption, botTp1Caption } from "./botFormat";
 import { broadcastText } from "./telegram";
 import { buildPlan, realizedPnl } from "./money";
-import { BYBIT } from "./market";
+import { BINGX } from "./market";
 import { trackCandle } from "./track";
 import type { MarketData } from "./market";
 import type { TrackState } from "./track";
@@ -179,10 +179,10 @@ export async function publishSetup(s: {
   tpFinal?: number | null; // цель остатка после TP1 со стопом в безубытке
   reasons: BotSetup["reasons"]; regime: string;
   // Комиссия биржи бота: входит в риск $3, поэтому определяет объём позиции.
-  // По умолчанию Bybit — под него посчитаны первые боты.
+  // По умолчанию BingX — на нём торгуют все боты.
   feeRate?: number;
 }, report: BotTickReport, caption: (x: BotSetup) => string): Promise<boolean> {
-  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BYBIT.takerFee,
+  const plan = buildPlan(s.direction, s.entry, s.stop, s.tp1, s.feeRate ?? BINGX.takerFee,
     s.tpFinal ?? null);
   if (!plan) {
     report.errors.push(`plan ${s.symbol}: не удалось рассчитать объём и плечо`);

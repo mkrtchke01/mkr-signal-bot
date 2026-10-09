@@ -1,4 +1,4 @@
-import { fetchKlines, lastPrice } from "./bybit";
+import { fetchKlines, lastPrice } from "./bingx";
 import {
   closeSignal, getSignal, insertSignal, listTraders, openSignals,
   openSignalTraderIds, setTraderLastEntryCandle, touchSignal,

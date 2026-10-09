@@ -1,7 +1,7 @@
 // Сканер бота «Сила против BTC»: ликвидные монеты → те, что обогнали биткоин
 // за сутки → публикация лучших по силе импульса.
 
-import { lastPrice } from "./bybit";
+import { lastPrice } from "./bingx";
 import { activeBotSetups } from "./db";
 import { botSetupCaption } from "./botFormat";
 import {

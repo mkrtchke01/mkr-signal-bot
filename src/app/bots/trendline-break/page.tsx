@@ -5,7 +5,6 @@ export default function TrendlineBreakBotPage() {
     <BotDashboard
       slug="trendline-break"
       title="📐 Пробой наклонки"
-      exchange={{ name: "BingX", maker: "0.02%", taker: "0.05%" }}
       intro={(
         <>
           <p className="hint">

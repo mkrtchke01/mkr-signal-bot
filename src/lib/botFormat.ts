@@ -3,7 +3,7 @@
 // Биржа у каждого бота своя — она приходит в CaptionStyle вместе с шапкой.
 
 import { fmtMoney, fmtPct, fmtPrice, fmtUsd } from "./format";
-import { BYBIT } from "./market";
+import { BINGX } from "./market";
 import type { MarketData } from "./market";
 import type { BotSetup, TradePlan } from "./types";
 
@@ -13,6 +13,11 @@ const pct3 = (v: number) => `${(v * 100).toFixed(3).replace(/0+$/, "").replace(/
 function rrOf(s: BotSetup, price: number): string {
   const risk = Math.abs(s.entryPrice - s.initialStop);
   return risk > 0 ? (Math.abs(price - s.entryPrice) / risk).toFixed(1) : "—";
+}
+
+// Откат трейлинга в процентах: на бирже его задают и суммой, и долей цены
+function trailPct(s: BotSetup): string {
+  return s.activateAt > 0 ? `${((s.trailAbs / s.activateAt) * 100).toFixed(2)}%` : "—";
 }
 
 function dirBadge(s: BotSetup): string {
@@ -80,8 +85,8 @@ export function exchangeSetupLines(s: BotSetup, ex: MarketData): string[] {
     `2) В позиции открой «TP/SL» → режим «Частичная позиция»:`,
     `   • Стоп-лосс: ${fmtPrice(s.initialStop)} — на весь объём`,
     `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма`,
-    `3) Там же колонка «Скользящий стоп-ордер» → «+ Добавить»:`,
-    `   • Коррекция: ${fmtPrice(s.trailAbs)} (режим «По сумме»)`,
+    `3) Трейлинг-стоп на оставшиеся 50%:`,
+    `   • Откат: ${fmtPrice(s.trailAbs)} (≈${trailPct(s)} от цены активации)`,
     `   • Цена активации: ✅ ${fmtPrice(s.activateAt)}`,
     ``,
     ...(trailAtTp1(s)
@@ -96,12 +101,12 @@ export function exchangeSetupLines(s: BotSetup, ex: MarketData): string[] {
 export interface CaptionStyle {
   head: string;            // шапка сигнала: у каждого бота своя
   note: string;            // предупреждение в конце — про характер стратегии
-  exchange?: MarketData;   // где торгуем; по умолчанию Bybit
+  exchange?: MarketData;   // где торгуем; по умолчанию BingX
 }
 
 export function botSetupCaption(s: BotSetup, style: CaptionStyle): string {
   const p = s.plan;
-  const ex = style.exchange ?? BYBIT;
+  const ex = style.exchange ?? BINGX;
   const money = (v: number | undefined) => (v === undefined ? "" : ` → ${fmtUsd(v)}`);
   return [
     `${style.head} ${dirBadge(s)} #${s.symbol} — ВХОД СЕЙЧАС`,
@@ -177,11 +182,11 @@ export function botRearmCaption(s: BotSetup): string {
           + `переставь в безубыток: ${fmtPrice(s.entryPrice)}`,
       ] : [
         `   • Тейк-профит: ${fmtPrice(s.tp1)} — на 50% объёма (${s.rr1}R)`,
-        `   • Скользящий стоп: коррекция ${fmtPrice(s.trailAbs)}, `
+        `   • Трейлинг-стоп: откат ${fmtPrice(s.trailAbs)} (≈${trailPct(s)}), `
           + `цена активации ${fmtPrice(s.activateAt)}`,
         `   • Стоп-лосс ${fmtPrice(s.initialStop)} оставь как есть`,
         ``,
-        `Если старый скользящий стоп-ордер уже стоит — удали его и добавь заново `
+        `Если старый трейлинг-стоп уже стоит — удали его и добавь заново `
           + `с новой ценой активации.`,
       ]),
   ].join("\n");
@@ -210,7 +215,7 @@ export function botCloseCaption(s: BotSetup): string {
   if (s.status === "TIME") {
     lines.push(s.tpFull
       ? `❗ Закрой позицию по рынку руками и сними стоп с тейком.`
-      : `❗ Закрой остаток по рынку руками и сними скользящий стоп-ордер.`);
+      : `❗ Закрой остаток по рынку руками и сними трейлинг-стоп.`);
   }
   return lines.join("\n");
 }

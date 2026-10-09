@@ -1,8 +1,8 @@
 // Котировки BingX — бессрочные USDT-контракты (`open-api.bingx.com`, swap v2/v3).
-// Нужны боту «Пробой наклонки»: он торгуется на BingX, а цена в сигнале должна
-// совпадать с ценой в терминале — базис и фандинг у бирж разные.
+// Все трейдеры и боты торгуют на BingX: монеты, свечи и цены берём отсюда,
+// чтобы цена в сигнале совпадала с ценой в терминале.
 //
-// Символы внутри проекта пишутся без дефиса («ARBUSDT»), как на Bybit: так их
+// Символы внутри проекта пишутся без дефиса («ARBUSDT»): так их
 // хранит база и так их показывает интерфейс. Наружу уходит формат биржи
 // («ARB-USDT»), преобразование — в toBingx/fromBingx.
 
@@ -140,4 +140,19 @@ export async function symbolsByVolume(minQuoteVolume = 0): Promise<SymbolVolume[
     .filter((t) => Number.isFinite(t.quoteVolume) && t.quoteVolume >= minQuoteVolume
       && t.lastPrice > 0)
     .sort((a, b) => b.quoteVolume - a.quoteVolume);
+}
+
+// Топ-N крипто-перпов USDT по обороту за 24ч — список монет для сканеров
+// и подсказок в конструкторе трейдеров.
+export async function topSymbols(n = 20): Promise<SymbolVolume[]> {
+  return (await symbolsByVolume()).slice(0, n);
+}
+
+export async function symbolExists(symbol: string): Promise<boolean> {
+  try {
+    await lastPrice(symbol);
+    return true;
+  } catch {
+    return false;
+  }
 }

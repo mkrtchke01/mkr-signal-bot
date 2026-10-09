@@ -48,13 +48,12 @@ function fmtTime(iso: string | null): string {
   });
 }
 
-// Биржа бота: подписи в инструкции «как выставить». По умолчанию Bybit —
-// на нём работают все боты, кроме «Пробоя наклонки».
+// Биржа бота: подписи в инструкции «как выставить». Все боты торгуют на BingX.
 interface ExchangeLabels { name: string; maker: string; taker: string }
-const BYBIT_LABELS: ExchangeLabels = { name: "Bybit", maker: "0.01%", taker: "0.055%" };
+const BINGX_LABELS: ExchangeLabels = { name: "BingX", maker: "0.02%", taker: "0.05%" };
 
 export default function BotDashboard({
-  slug, title, intro, exchange = BYBIT_LABELS,
+  slug, title, intro, exchange = BINGX_LABELS,
 }: {
   slug: string; title: string; intro: React.ReactNode; exchange?: ExchangeLabels;
 }) {
@@ -391,8 +390,10 @@ export default function BotDashboard({
                 )}
                 {!s.tpFull && !s.tpFinal && (
                   <li>
-                    «Скользящий стоп-ордер» → «+ Добавить»: коррекция{" "}
-                    <b>{fmtPrice(s.trailAbs)}</b> (режим «По сумме»), цена активации{" "}
+                    Трейлинг-стоп на оставшиеся 50%: откат{" "}
+                    <b>{fmtPrice(s.trailAbs)}</b>
+                    {s.activateAt > 0 && <> (≈{((s.trailAbs / s.activateAt) * 100).toFixed(2)}%)</>},
+                    цена активации{" "}
                     <b>{fmtPrice(s.activateAt)}</b>
                   </li>
                 )}

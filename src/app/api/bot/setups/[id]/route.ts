@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { botRuntime } from "@/lib/botRegistry";
 import { closeBotSetup, getBotSetup, reopenBotSetup } from "@/lib/db";
 import { botCloseCaption, botRearmCaption } from "@/lib/botFormat";
-import { BYBIT } from "@/lib/market";
+import { BINGX } from "@/lib/market";
 import { buildPlan, realizedPnl } from "@/lib/money";
 import { BTC_INTRADAY_SLUG } from "@/lib/botBtcIntraday";
 import { TRENDLINE_SLUG } from "@/lib/botTrendline";
@@ -17,7 +17,7 @@ import { fmtPrice } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 // Цену и комиссию берём на бирже того бота, который породил сетап
-const marketOf = (bot: string) => botRuntime(bot)?.market ?? BYBIT;
+const marketOf = (bot: string) => botRuntime(bot)?.market ?? BINGX;
 
 // Ручное закрытие позиции по текущей рыночной цене
 export async function DELETE(

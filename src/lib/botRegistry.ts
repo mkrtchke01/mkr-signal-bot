@@ -7,7 +7,7 @@ import { BREAKOUT_DEFAULTS, BREAKOUT_SLUG, scanBreakout } from "./botBreakout";
 import { BTC_INTRADAY_DEFAULTS, BTC_INTRADAY_SLUG, scanBtcIntraday } from "./botBtcIntraday";
 import { RELSTRENGTH_DEFAULTS, RELSTRENGTH_SLUG, scanRelStrength } from "./botRelStrength";
 import { TRENDLINE_DEFAULTS, TRENDLINE_SLUG, scanTrendline } from "./botTrendline";
-import { BINGX, BYBIT } from "./market";
+import { BINGX } from "./market";
 import type { MarketData } from "./market";
 
 export interface BotRuntime {
@@ -18,14 +18,14 @@ export interface BotRuntime {
 }
 
 export const BOT_RUNTIMES: BotRuntime[] = [
-  { slug: BREAKOUT_SLUG, defaults: BREAKOUT_DEFAULTS, scan: scanBreakout, market: BYBIT },
+  { slug: BREAKOUT_SLUG, defaults: BREAKOUT_DEFAULTS, scan: scanBreakout, market: BINGX },
   {
     slug: RELSTRENGTH_SLUG, defaults: RELSTRENGTH_DEFAULTS,
-    scan: scanRelStrength, market: BYBIT,
+    scan: scanRelStrength, market: BINGX,
   },
   {
     slug: BTC_INTRADAY_SLUG, defaults: BTC_INTRADAY_DEFAULTS,
-    scan: scanBtcIntraday, market: BYBIT,
+    scan: scanBtcIntraday, market: BINGX,
   },
   {
     slug: TRENDLINE_SLUG, defaults: TRENDLINE_DEFAULTS,

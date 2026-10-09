@@ -5,7 +5,7 @@
 // многодневную — часами. Дальше шаг переключает человек кнопками над графиком.
 
 import { botRuntime } from "./botRegistry";
-import { BYBIT } from "./market";
+import { BINGX } from "./market";
 import { entryMs, exitMs, replayTrade } from "./replay";
 import { TF_MS } from "./types";
 import type { Extreme, StopStep, TradeEvent } from "./replay";
@@ -75,7 +75,7 @@ function setupLevels(s: BotSetup): ChartLevel[] {
 
 // Биржа, на которой торгует бот сделки
 export function tradeExchange(s: BotSetup): string {
-  return (botRuntime(s.bot)?.market ?? BYBIT).name;
+  return (botRuntime(s.bot)?.market ?? BINGX).name;
 }
 
 /**
@@ -90,7 +90,7 @@ export async function fetchTradeCandles(
   const start = Math.floor(from);
   const end = Math.ceil(to);
   const bars = Math.min(Math.ceil((end - start) / TF_MS[tf]) + 2, 1000);
-  const list = await (botRuntime(s.bot)?.market ?? BYBIT).fetchKlines(s.symbol, tf, {
+  const list = await (botRuntime(s.bot)?.market ?? BINGX).fetchKlines(s.symbol, tf, {
     startTime: start, endTime: end, limit: bars,
   });
   // Страховка: биржа могла отдать больше, чем просили

@@ -1,4 +1,4 @@
-import { fetchKlinesRange } from "./bybit";
+import { fetchKlinesRange } from "./bingx";
 import {
   calcTargets, checkPriceExit, exitWarmup, profitPct, requiredTfs,
   ruleTriggeredAt, rsiExitTriggered, smallestTf, warmupCandles,

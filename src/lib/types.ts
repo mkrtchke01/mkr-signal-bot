@@ -117,12 +117,12 @@ export interface Signal {
 export type BotSetupStatus =
   | "OPEN" | "TP" | "SL" | "PART" | "TRAIL" | "TIME" | "CANCELLED";
 
-// Денежный план сделки: фиксированный риск в $, безопасное плечо, комиссии Bybit.
+// Денежный план сделки: фиксированный риск в $, безопасное плечо, комиссии биржи.
 // Считается один раз в момент сигнала и хранится вместе с сетапом — чтобы итог
 // закрытия считался по тем же цифрам, что ушли в канал.
 export interface TradePlan {
   riskUsd: number;   // потеря на стопе, включая комиссии
-  feeRate: number;   // тейкерская комиссия Bybit, доля
+  feeRate: number;   // тейкерская комиссия биржи, доля
   feeUsd: number;    // ориентировочная комиссия за круг, $
   leverage: number;
   qty: number;       // размер позиции в монете
@@ -155,8 +155,8 @@ export interface BotSetup {
   initialStop: number;
   tp1: number;         // цель частичной фиксации 50%
   rr1: number;         // TP1 в единицах риска
-  activateAt: number;  // цена включения трейлинга («Цена активации» на Bybit)
-  trailAbs: number;    // шаг трейлинга в цене («Коррекция» на Bybit)
+  activateAt: number;  // цена включения трейлинга («Цена активации» трейлинг-стопа)
+  trailAbs: number;    // шаг трейлинга в цене (откат трейлинг-стопа в цене)
   trailOn: boolean;    // трейлинг уже активирован
   bestPrice: number;   // лучшая цена с момента активации трейлинга
   tpFull: boolean;     // на tp1 выходим целиком: ни половины, ни трейлинга
