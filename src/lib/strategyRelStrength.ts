@@ -6,7 +6,10 @@
 //
 //  1. Вселенная — топ-20 ликвидных перпов по обороту за сутки.
 //  2. Вход, когда за 24 часа (96 свечей 15m) монета опережает BTC больше чем
-//     на RS_THRESHOLD процентных пункта.
+//     на RS_THRESHOLD процентных пункта сверх своей беты. Альт с бетой 1.8 при
+//     падении BTC на 3% сам собой теряет 5.4% — это не слабость монеты, а рычаг
+//     к рынку. Без поправки на бету любое движение BTC давало пачку однотипных
+//     сигналов по всем высокобетовым альтам сразу.
 //  3. Подтверждение — собственный тренд монеты: EMA50 > EMA200 на 1h
 //     (для шортов зеркально). Отдельного фильтра по режиму BTC нет: на тестах
 //     он только ухудшал результат, эту роль играет тренд самой монеты.
@@ -22,6 +25,9 @@
 // Приятное свойство конструкции: TP1 стоит на 9×ATR от входа, а трейлинг идёт
 // в 2×ATR за ценой. Значит в момент срабатывания TP1 трейл встаёт минимум на
 // 7×ATR = +1.17R, и дальше сделка закрывается не хуже +1.34R по сумме.
+//
+// Лимиты на число сделок (одна новая за скан, не больше двух в одну сторону)
+// живут в сканере botRelStrength: без них сигналы шли пачками за BTC.
 //
 // ⚠️ СТАТУС: НЕ ПОДТВЕРЖДЕНА. Стратегия отобрана перебором, но прогон этого же
 // кода на истории даёт результат в диапазоне от −$10 до +$309 за четыре года
@@ -40,6 +46,10 @@ export const TRAIL_ATR = 2;         // шаг трейлинга
 export const MAX_HOLD_HOURS = 168;  // неделя, дальше выход по рынку
 export const TREND_FAST = 50;       // EMA на 1h для фильтра тренда
 export const TREND_SLOW = 200;
+// Бета к BTC по лог-доходностям 15m за всё окно сканера (~3 суток). Границы —
+// защита от вырожденных оценок на тихом или аномальном отрезке, а не подбор.
+export const BETA_MIN = 0.3;
+export const BETA_MAX = 3;
 
 // Грубые границы здравого смысла, а не подобранные параметры. Медианный стоп
 // у стратегии около 6% от цены — это её нормальный режим, а не аномалия.
@@ -65,7 +75,8 @@ export interface RsCandidate {
   activateAt: number;  // совпадает с TP1: трейлинг подхватывает остаток сразу
   trailAbs: number;
   atr: number;
-  edge: number;        // обгон BTC в процентных пунктах
+  edge: number;        // обгон BTC сверх беты, в процентных пунктах
+  beta: number;        // бета монеты к BTC
   score: number;
   reasons: { entry: string; stop: string; tp1: string; trail: string };
 }
@@ -76,6 +87,25 @@ function retPct(c: Candle[], lookback: number): number {
   const last = c[c.length - 1];
   if (!base || !last || !(base.close > 0)) return NaN;
   return (last.close / base.close - 1) * 100;
+}
+
+// Бета монеты к BTC по лог-доходностям общего хвоста двух рядов
+export function betaToBtc(coin: Candle[], btc: Candle[]): number {
+  const n = Math.min(coin.length, btc.length);
+  const a = coin.slice(-n), b = btc.slice(-n);
+  let sx = 0, sy = 0;
+  const x: number[] = [], y: number[] = [];
+  for (let i = 1; i < n; i++) {
+    const rx = Math.log(b[i].close / b[i - 1].close);
+    const ry = Math.log(a[i].close / a[i - 1].close);
+    x.push(rx); y.push(ry); sx += rx; sy += ry;
+  }
+  if (x.length < 2) return 1;
+  const mx = sx / x.length, my = sy / y.length;
+  let cov = 0, vx = 0;
+  for (let i = 0; i < x.length; i++) { cov += (x[i] - mx) * (y[i] - my); vx += (x[i] - mx) ** 2; }
+  const v = vx > 0 ? cov / vx : 1;
+  return Number.isFinite(v) ? Math.min(BETA_MAX, Math.max(BETA_MIN, v)) : 1;
 }
 
 /**
@@ -105,7 +135,13 @@ export function findRelStrength(
   if (!base || !btcBase) return null;
   if (last.openTime !== btcLast.openTime || base.openTime !== btcBase.openTime) return null;
 
-  const edge = retPct(m15, RS_LOOKBACK) - retPct(btc15, RS_LOOKBACK);
+  // Сколько монета «должна» была пройти просто из-за своей беты к BTC
+  // (в лог-масштабе, чтобы на крупных движениях не уходить в отрицательные цены)
+  const beta = betaToBtc(m15, btc15);
+  const coinRet = retPct(m15, RS_LOOKBACK);
+  const btcRet = retPct(btc15, RS_LOOKBACK);
+  const expected = ((1 + btcRet / 100) ** beta - 1) * 100;
+  const edge = coinRet - expected;
   if (!Number.isFinite(edge)) return null;
 
   const closes1h = h1.map((c) => c.close);
@@ -132,10 +168,11 @@ export function findRelStrength(
   const trailAbs = TRAIL_ATR * a;
 
   const word = isLong ? "обогнала" : "отстала от";
+  const sgn = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   const dirWord = isLong ? "выше" : "ниже";
   const reasons = {
-    entry: `за ${RS_LOOKBACK / 4}ч монета ${word} BTC на ${Math.abs(edge).toFixed(1)} п.п. `
-      + `(${retPct(m15, RS_LOOKBACK).toFixed(1)}% против ${retPct(btc15, RS_LOOKBACK).toFixed(1)}% у BTC). `
+    entry: `за ${RS_LOOKBACK / 4}ч монета ${word} BTC на ${Math.abs(edge).toFixed(1)} п.п. сверх своей беты: `
+      + `${sgn(coinRet)} при BTC ${sgn(btcRet)}, а с бетой ${beta.toFixed(2)} ожидалось ${sgn(expected)}. `
       + `Собственный тренд подтверждает: EMA${TREND_FAST} ${dirWord} EMA${TREND_SLOW} на 1h. `
       + `Капитал притекает в то, что уже растёт, и приток инерционен — заходим по рынку сразу`,
     stop: `${STOP_ATR}×ATR(14, 15m) = ${fmtPrice(STOP_ATR * a)} от входа. Стоп широкий намеренно: `
@@ -149,7 +186,7 @@ export function findRelStrength(
   return {
     symbol, direction, entry, stop, tp1,
     activateAt: tp1,
-    trailAbs, atr: a, edge,
+    trailAbs, atr: a, edge, beta,
     // приоритет при нехватке слотов: чем дальше цена ушла от своей EMA50, тем сильнее импульс
     score: Math.abs(last.close - ema50) / a,
     reasons,

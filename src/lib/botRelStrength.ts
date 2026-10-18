@@ -7,6 +7,7 @@ import {
   findRelStrength, H1_BARS, M15_BARS, MAX_HOLD_HOURS, RS_LOOKBACK, RS_THRESHOLD, TP1_R,
 } from "./strategyRelStrength";
 import { publishSetup } from "./bot";
+import { activeBotSetups } from "./db";
 import { chunks, closedKlines, pickUniverse } from "./botScan";
 import type { BotConfig, BotTickReport } from "./bot";
 import type { RsCandidate } from "./strategyRelStrength";
@@ -27,17 +28,26 @@ export const RELSTRENGTH_DEFAULTS: BotConfig = {
 const SYMBOL_COOLDOWN_MS = 4 * 3_600_000;
 const SCAN_UNIVERSE = 20;
 
+// Сигналы стратегии сильно коррелируют между собой: одно движение BTC даёт
+// обгон сразу у многих монет, и без лимитов бот открывал до двух десятков
+// сделок в одну сторону — по сути одну ставку на биткоин с большим риском.
+// На четырёх годах истории эти лимиты срезали просадку с $639 до $120 и худший
+// день с −$56 до −$12 при том же итоге (relstrength-batch-test.ts).
+const MAX_NEW_PER_SCAN = 1;
+const MAX_SAME_DIRECTION = 2;
+
 const CAPTION = {
   head: "⚡ СИЛА ПРОТИВ BTC",
   note: "⚠️ Стратегия импульсная и работает на дистанции: в плюс закрывается "
     + "меньше половины сделок, а результат делают те, где движение продолжилось. "
-    + "Сделок примерно 40 в месяц — это заметно чаще, чем у пробойного бота.",
+    + "Не больше одной новой сделки за скан и двух открытых в одну сторону.",
 };
 
 export async function scanRelStrength(
   slug: string, cfg: BotConfig, report: BotTickReport,
 ): Promise<void> {
-  // Сколько позиций открыть, решает свободная маржа счёта — её проверяет publishSetup
+  // Направления открытых сделок бота; новые из этого скана дописываются сюда же
+  const openDirs = (await activeBotSetups(slug)).map((s) => s.direction);
 
   // Эталон, с которым сравниваются все монеты
   const btc15 = await closedKlines("BTCUSDT", "15m", M15_BARS);
@@ -64,14 +74,21 @@ export async function scanRelStrength(
   }
 
   candidates.sort((a, b) => b.score - a.score);
+  let published = 0;
   for (const c of candidates) {
-    await publishSetup({
+    if (published >= MAX_NEW_PER_SCAN) break;
+    if (openDirs.filter((d) => d === c.direction).length >= MAX_SAME_DIRECTION) continue;
+    const ok = await publishSetup({
       bot: slug, symbol: c.symbol, direction: c.direction,
       entry: c.entry, stop: c.stop, tp1: c.tp1, rr1: TP1_R,
       activateAt: c.activateAt, trailAbs: c.trailAbs,
       reasons: c.reasons,
       regime: `обгон BTC за ${RS_LOOKBACK / 4}ч на ${c.edge.toFixed(1)} п.п. `
-        + `(порог ${RS_THRESHOLD})`,
+        + `сверх беты ${c.beta.toFixed(2)} (порог ${RS_THRESHOLD})`,
     }, report, (s: BotSetup) => botSetupCaption(s, CAPTION));
+    if (ok) {
+      published++;
+      openDirs.push(c.direction);
+    }
   }
 }
