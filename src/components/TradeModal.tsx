@@ -28,6 +28,12 @@ const EVENT_DOT: Record<TradeEvent["kind"], string> = {
   ENTRY: "brand", TP1: "green", TRAIL_ON: "yellow", EXIT: "c1",
 };
 
+const FAV_KEY = "fav-setups";
+function readFavs(): string[] {
+  const v = JSON.parse(localStorage.getItem(FAV_KEY) ?? "[]");
+  return Array.isArray(v) ? v : [];
+}
+
 // «1 раз», «2 раза», «5 раз»
 function times(n: number): string {
   const t = n % 100;
@@ -74,6 +80,20 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
     return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
 
+  // Сердечко на любой сделке: отметка живёт в браузере, по id сделки
+  const [fav, setFav] = useState(false);
+  useEffect(() => {
+    try { setFav(readFavs().includes(id)); } catch { /* хранилище недоступно */ }
+  }, [id]);
+  const toggleFav = () => {
+    const next = !fav;
+    setFav(next);
+    try {
+      const rest = readFavs().filter((x) => x !== id);
+      localStorage.setItem(FAV_KEY, JSON.stringify(next ? [...rest, id] : rest));
+    } catch { /* хранилище недоступно */ }
+  };
+
   const s = data?.setup;
   const chart = data?.chart;
   const mine = data?.mine ?? null;
@@ -101,6 +121,12 @@ export default function TradeModal({ id, onClose }: { id: string; onClose: () =>
               )}
             </>
           ) : <span className="sym">Сделка</span>}
+          <button
+            className={`btn sm icon modal-fav${fav ? " on" : ""}`} onClick={toggleFav}
+            title={fav ? "Убрать из избранного" : "В избранное"}
+          >
+            {fav ? "♥" : "♡"}
+          </button>
           <button className="btn sm icon modal-x" onClick={onClose} title="Закрыть">✕</button>
         </div>
 
