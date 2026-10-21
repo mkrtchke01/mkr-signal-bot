@@ -622,14 +622,6 @@ export default function TradeChart({
             {marks.map((m, i) => markLine(m, i))}
             {draft && markLine(draft, null)}
           </g>
-
-          <text
-            x={PAD_L + plotW / 2} y={PAD_T + plotH / 2} fontSize={120}
-            textAnchor="middle" dominantBaseline="central" fill="#ff4d6d"
-            opacity={0.85} style={{ pointerEvents: "none" }}
-          >
-            ♥
-          </text>
         </svg>
 
         {hc && !draft && (

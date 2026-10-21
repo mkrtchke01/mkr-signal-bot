@@ -830,6 +830,9 @@ code.inline {
   letter-spacing: -.015em;
 }
 .modal-x { margin-left: auto; }
+.modal-fav { margin-left: auto; font-size: 17px; color: var(--c-3); }
+.modal-fav.on { color: #ff4d6d; }
+.modal-fav + .modal-x { margin-left: 0; }
 .modal-body {
   display: flex;
   flex-direction: column;
