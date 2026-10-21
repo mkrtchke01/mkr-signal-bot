@@ -623,28 +623,13 @@ export default function TradeChart({
             {draft && markLine(draft, null)}
           </g>
 
-          {/* сердечко «от руки»: кривой контур, обведённый дважды, и неровная штриховка */}
-          <g
-            transform={`translate(${PAD_L + plotW / 2 - 80} ${PAD_T + plotH / 2 - 75}) rotate(-6 80 75)`}
-            fill="none" stroke="#e8182c" strokeLinecap="round" strokeLinejoin="round"
-            style={{ pointerEvents: "none" }}
+          <text
+            x={PAD_L + plotW / 2} y={PAD_T + plotH / 2} fontSize={120}
+            textAnchor="middle" dominantBaseline="central" fill="#ff4d6d"
+            opacity={0.85} style={{ pointerEvents: "none" }}
           >
-            <path
-              strokeWidth={5}
-              d="M82 38 C70 8 30 4 18 30 C6 56 30 92 58 112 C68 120 76 132 80 146
-                 C86 128 98 118 112 106 C140 82 158 52 146 28 C134 6 96 10 84 40"
-            />
-            <path
-              strokeWidth={3} opacity={0.8}
-              d="M79 42 C66 14 34 10 22 34 C12 60 36 94 62 114 C70 122 77 134 81 143
-                 C88 126 101 115 116 102 C142 78 154 50 142 30 C128 12 98 16 86 44 L83 36"
-            />
-            <path
-              strokeWidth={4} opacity={0.7}
-              d="M34 40 L60 30 M30 58 L84 44 M38 76 L110 46 M50 92 L132 44 M64 106 L140 60
-                 M74 120 L124 92 M80 134 L104 116"
-            />
-          </g>
+            ♥
+          </text>
         </svg>
 
         {hc && !draft && (
